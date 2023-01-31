@@ -47,6 +47,8 @@ public class RPMConnectionServiceImpl extends AbstractService implements RPMConn
     public static final long MIN_CONNECT_ATTEMPT_INTERVAL = 5L;
     private final ScheduledExecutorService scheduledExecutor;
 
+    private static final AtomicReference<RPMConnectionTask> connectionTaskSingleton = new AtomicReference<>();
+
     public RPMConnectionServiceImpl() {
         super(RPMConnectionService.class.getSimpleName());
         ThreadFactory threadFactory = new DefaultThreadFactory(RPM_CONNECTION_THREAD_NAME, true);
@@ -64,19 +66,25 @@ public class RPMConnectionServiceImpl extends AbstractService implements RPMConn
 
     /**
      * Start a connection task for the service.
+     * Uses a singleton for attempting connections.
      */
     @Override
     public void connect(IRPMService rpmService) {
-        RPMConnectionTask connectionTask = new RPMConnectionTask(rpmService);
+        RPMConnectionTask connectionTask = RPMConnectionServiceImpl.connectionTaskSingleton.updateAndGet((connTask) ->
+                (connTask == null) ? new RPMConnectionTask(rpmService) : connTask
+        );
         connectionTask.start();
     }
 
     /**
      * Start an immediate connection task for the RPM service.
+     * Uses a singleton for attempting connections.
      */
     @Override
     public void connectImmediate(IRPMService rpmService) {
-        RPMConnectionTask connectionTask = new RPMConnectionTask(rpmService);
+        RPMConnectionTask connectionTask = RPMConnectionServiceImpl.connectionTaskSingleton.updateAndGet((connTask) ->
+                (connTask == null) ? new RPMConnectionTask(rpmService) : connTask
+        );
         connectionTask.startImmediate();
     }
 
@@ -137,7 +145,8 @@ public class RPMConnectionServiceImpl extends AbstractService implements RPMConn
                 startSync();
             } else {
                 getLogger().log(Level.FINER, "Waiting for application server port");
-                appServerPortTask.set(scheduleAppServerPortTask());
+                appServerPortTask.updateAndGet((scheduledTask) -> (scheduledTask == null) ? scheduleAppServerPortTask() : scheduledTask);
+                // scheduled as a one-shot. No need to ensure it's only running once from here.
                 appServerPortTimeoutTask.set(scheduleAppServerPortTimeoutTask());
             }
         }
@@ -154,9 +163,10 @@ public class RPMConnectionServiceImpl extends AbstractService implements RPMConn
 
         /**
          * Runs until a connection to New Relic is established without waiting for the application server port.
+         * Limit to a single call of `scheduleConnectTask()` to prevent unbounded growth of scheduled connection tasks.
          */
         private void startImmediate() {
-            connectTask.set(scheduleConnectTask());
+            connectTask.updateAndGet((currentConnectionTask) -> (currentConnectionTask == null) ? scheduleConnectTask() : currentConnectionTask);
         }
 
         /**
@@ -198,7 +208,7 @@ public class RPMConnectionServiceImpl extends AbstractService implements RPMConn
                     if (hasAppServerPort() && !connectTaskStarted()) {
                         stop();
                         getLogger().log(Level.FINER, "Discovered application server port");
-                        connectTask.set(scheduleConnectTask());
+                        connectTask.updateAndGet((scheduledTask) -> (scheduledTask == null) ? scheduleConnectTask() : scheduledTask);
                     }
                 }
             }), getInitialAppServerPortDelay(), SUBSEQUENT_APP_SERVER_PORT_DELAY, TimeUnit.SECONDS);
@@ -218,7 +228,7 @@ public class RPMConnectionServiceImpl extends AbstractService implements RPMConn
                             if (!hasAppServerPort()) {
                                 getLogger().log(Level.FINER, "Gave up waiting for application server port");
                             }
-                            connectTask.set(scheduleConnectTask());
+                            connectTask.updateAndGet((connectTask) -> (connectTask == null) ? scheduleConnectTask() : connectTask);
                         }
                     }
                 }
