@@ -10,6 +10,7 @@ repositories {
 }
 
 dependencies {
+	implementation files("${System.properties['java.home']}/../lib/tools.jar")
     implementation(project(":newrelic-weaver-api"))
     implementation(project(":newrelic-weaver-scala-api"))
 
