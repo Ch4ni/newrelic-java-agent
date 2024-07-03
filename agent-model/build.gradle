@@ -2,6 +2,9 @@ plugins {
     id "java-library"
 }
 
+apply from: '../gradle/script/spotbugs-config.gradle'
+apply from: '../gradle/script/jacoco.gradle'
+
 dependencies {
     api 'com.googlecode.json-simple:json-simple:1.1'
 }

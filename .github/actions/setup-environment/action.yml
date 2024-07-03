@@ -1,0 +1,52 @@
+name: Setup Environment
+description:  Sets up the environment to build/test the agent.
+inputs:
+  gradle-cache-read-only:
+    description: 'Whether the Gradle cache should be read only'
+    required: false
+    default: 'true'
+# This action expects the agent to be checked out at $GITHUB_WORKSPACE.
+# It will also set up the instrumentation jar zip if AWS credentials are set.
+# This action requires these because composite actions cannot use secrets.
+
+runs:
+  using: composite
+
+  steps:
+    - name: Set up Javas
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: |
+          22
+          21
+          17
+          11
+          8
+
+    - name: set gradle.properties
+      shell: bash
+      run: |
+        sed -i -e "s|jdk8=8|jdk8=${JAVA_HOME_8_X64}|
+        s|jdk11=11|jdk11=${JAVA_HOME_11_X64}|
+        s|jdk17=17|jdk17=${JAVA_HOME_17_X64}|
+        s|jdk21=21|jdk21=${JAVA_HOME_21_X64}|
+        s|jdk22=22|jdk22=${JAVA_HOME_22_X64}|" gradle.properties.gha
+        cat gradle.properties.gha >> gradle.properties
+
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v3
+      with:
+        cache-read-only: ${{ inputs.gradle-cache-read-only }}
+
+    - name: Setup Gradle options
+      shell: bash
+      run: echo "GRADLE_OPTIONS=--console=plain --parallel -Porg.gradle.java.installations.auto-detect=false -Porg.gradle.java.installations.fromEnv=JAVA_HOME_8_X64,JAVA_HOME_11_X64,JAVA_HOME_17_X64,JAVA_HOME_21_X64,JAVA_HOME_22_X64" >> $GITHUB_ENV
+
+    - name: Download S3 instrumentation jar zip
+      shell: bash
+      run: |
+        aws s3 cp s3://nr-java-agent-s3-instrumentation/proprietary-jars-20230623.zip proprietary-jars.zip && unzip proprietary-jars.zip
+        if [ $? -ne 0 ]; then
+          echo "Instrumentation jar zip unavailable." >> $GITHUB_STEP_SUMMARY
+        fi

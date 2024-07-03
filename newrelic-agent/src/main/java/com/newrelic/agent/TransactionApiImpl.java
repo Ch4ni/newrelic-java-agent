@@ -17,21 +17,21 @@ import com.newrelic.agent.bridge.NoOpTransaction;
 import com.newrelic.agent.bridge.NoOpWebResponse;
 import com.newrelic.agent.bridge.Token;
 import com.newrelic.agent.bridge.TracedActivity;
-import com.newrelic.api.agent.Headers;
-import com.newrelic.api.agent.NewRelic;
-import com.newrelic.api.agent.TransportType;
 import com.newrelic.agent.bridge.WebResponse;
 import com.newrelic.agent.service.ServiceFactory;
 import com.newrelic.agent.tracers.Tracer;
 import com.newrelic.api.agent.ApplicationNamePriority;
 import com.newrelic.api.agent.DistributedTracePayload;
 import com.newrelic.api.agent.ExtendedRequest;
+import com.newrelic.api.agent.Headers;
 import com.newrelic.api.agent.InboundHeaders;
+import com.newrelic.api.agent.NewRelic;
 import com.newrelic.api.agent.Request;
 import com.newrelic.api.agent.Response;
 import com.newrelic.api.agent.Segment;
 import com.newrelic.api.agent.TracedMethod;
 import com.newrelic.api.agent.TransactionNamePriority;
+import com.newrelic.api.agent.TransportType;
 
 import java.net.URI;
 import java.util.Map;
@@ -47,7 +47,7 @@ import java.util.logging.Level;
  */
 public class TransactionApiImpl implements com.newrelic.agent.bridge.Transaction {
 
-    public static TransactionApiImpl INSTANCE = new TransactionApiImpl();
+    public static final TransactionApiImpl INSTANCE = new TransactionApiImpl();
 
     /**
      * Two ApiImpl classes are equal if their wrapped Transactions are the same object. They are also equal if neither
@@ -97,6 +97,10 @@ public class TransactionApiImpl implements com.newrelic.agent.bridge.Transaction
     public boolean setTransactionName(TransactionNamePriority namePriority, boolean override, String category,
             String... parts) {
         Transaction tx = getTransactionIfExists();
+        if (NewRelic.getAgent().getLogger().isLoggable(Level.FINEST)) {
+            Agent.LOG.log(Level.FINEST, "newrelic.agent.TransactionApiImpl::setTransactionName (1) - txn: {0}, override: {1}, category: {2}, parts: {3}",
+                    (tx != null ? tx.toString() : "N/A"), override, category, String.join("/", parts));
+        }
         return (tx != null) ? tx.setTransactionName(namePriority, override, category, parts) : false;
     }
 
@@ -160,6 +164,10 @@ public class TransactionApiImpl implements com.newrelic.agent.bridge.Transaction
     public boolean setTransactionName(com.newrelic.agent.bridge.TransactionNamePriority namePriority, boolean override,
             String category, String... parts) {
         Transaction tx = getTransactionIfExists();
+        if (NewRelic.getAgent().getLogger().isLoggable(Level.FINEST)) {
+            Agent.LOG.log(Level.FINEST, "newrelic.agent.TransactionApiImpl::setTransactionName (2) - txn: {0}, override: {1}, category: {2}, parts: {3}",
+                    (tx != null ? tx.toString() : "N/A"), override, category, String.join("/", parts));
+        }
         return (tx != null) ? tx.setTransactionName(namePriority, override, category, parts) : false;
     }
 
@@ -303,6 +311,12 @@ public class TransactionApiImpl implements com.newrelic.agent.bridge.Transaction
     public Map<String, Object> getAgentAttributes() {
         Transaction tx = getTransactionIfExists();
         return (tx != null) ? tx.getAgentAttributes() : NoOpTransaction.INSTANCE.getAgentAttributes();
+    }
+
+    @Override
+    public Map<String, Object> getUserAttributes() {
+        Transaction tx = getTransactionIfExists();
+        return (tx != null) ? tx.getUserAttributes() : NoOpTransaction.INSTANCE.getUserAttributes();
     }
 
     @Override
@@ -460,6 +474,7 @@ public class TransactionApiImpl implements com.newrelic.agent.bridge.Transaction
         }
 
         Segment segment = tx.startSegment(category, segmentName);
+
         return segment == null ? NoOpSegment.INSTANCE : segment;
     }
 
@@ -478,12 +493,8 @@ public class TransactionApiImpl implements com.newrelic.agent.bridge.Transaction
         if(txa != null) {
           tx.checkFinishTransactionFromActivity(txa);
         }
-      if (null != tx) {
         Transaction.clearTransaction();
         return true;
-      } else {
-        return false;
-      }
     }
 
   @Override
@@ -521,6 +532,15 @@ public class TransactionApiImpl implements com.newrelic.agent.bridge.Transaction
             tx.setTransportType(transportType);
         }
         HeadersUtil.parseAndAcceptDistributedTraceHeaders(tx, headers);
+    }
+
+    @Override
+    public Object getSecurityMetaData() {
+        Transaction tx = getTransactionIfExists();
+        if (tx != null) {
+            return tx.getSecurityMetaData();
+        }
+        return null;
     }
 
     @Override

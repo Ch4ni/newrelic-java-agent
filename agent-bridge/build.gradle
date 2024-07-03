@@ -1,6 +1,50 @@
+import com.nr.builder.publish.PublishConfig
+
+plugins {
+    id("maven-publish")
+    id("signing")
+}
+
+apply from: '../gradle/script/spotbugs-config.gradle'
+apply from: '../gradle/script/jacoco.gradle'
+
+jar {
+    from("$rootDir/LICENSE")
+    manifest {
+        attributes 'Implementation-Title': 'New Relic Bridge', 'Implementation-Version': project.version
+    }
+}
+
+java {
+    withSourcesJar()
+    withJavadocJar()
+}
+
+tasks.withType(GenerateModuleMetadata.class) {
+    enabled = false
+}
+
+
+tasks.withType(Javadoc).configureEach {
+    javadocTool = javaToolchains.javadocToolFor {
+        languageVersion = JavaLanguageVersion.of(11)
+    }
+
+    options.addBooleanOption("-frames", true)
+    options.addBooleanOption("-no-module-directories", true)
+}
+
 dependencies {
     api(project(":newrelic-api"))
     api(project(":newrelic-weaver-api"))
 
+    testImplementation("org.mockito:mockito-inline:4.11.0")
     testImplementation(fileTree(dir: 'src/test/resources/com/newrelic/agent/bridge', include: '*.jar'))
+}
+
+PublishConfig.config(
+        project,
+        "New Relic Java agent bridge API",
+        "The bridge API of the Java agent.") { it ->
+    it.from(components.java)
 }

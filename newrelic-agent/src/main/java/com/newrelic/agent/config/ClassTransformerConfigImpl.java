@@ -45,6 +45,7 @@ final class ClassTransformerConfigImpl extends BaseConfig implements ClassTransf
     public static final String COMPUTE_FRAMES = "compute_frames";
     public static final String SHUTDOWN_DELAY = "shutdown_delay";
     public static final String GRANT_PACKAGE_ACCESS = "grant_package_access";
+    public static final String ENHANCED_SPRING_TRANSACTION_NAMING = "enhanced_spring_transaction_naming";
     public static final boolean DEFAULT_COMPUTE_FRAMES = true;
     public static final boolean DEFAULT_ENABLED = true;
     public static final boolean DEFAULT_DISABLED = false;
@@ -53,15 +54,21 @@ final class ClassTransformerConfigImpl extends BaseConfig implements ClassTransf
     public static final int DEFAULT_MAX_PREVALIDATED_CLASSLOADERS = 10;
     public static final boolean DEFAULT_PREVALIDATE_WEAVE_PACKAGES = true;
     public static final boolean DEFAULT_PREMATCH_WEAVE_METHODS = true;
+    public static final boolean DEFAULT_ENHANCED_SPRING_TRANSACTION_NAMING = false;
 
     private static final String SYSTEM_PROPERTY_ROOT = "newrelic.config.class_transformer.";
 
     static final String NEW_RELIC_TRACE_TYPE_DESC = "Lcom/newrelic/api/agent/Trace;";
+    static final String OTEL_WITH_SPAN_TYPE_DESC = "Lio/opentelemetry/instrumentation/annotations/WithSpan;";
     static final String DEPRECATED_NEW_RELIC_TRACE_TYPE_DESC = "Lcom/newrelic/agent/Trace;";
 
     // as of JAVA-4824 the yml config file is not required, but still need to match old behavior
     private static final Set<String> DEFAULT_DISABLED_WEAVE_PACKAGES = new HashSet<>();
     private static final Set<String> DEFAULT_CLASSLOADER_EXCLUDES = new HashSet<>();
+
+    // Security agent specific excludes needed to allow functioning with java.io.InputStream and OutputStream instrumentation.
+    private static final Set<String> SECURITY_AGENT_CLASS_EXCLUDES = new HashSet<>(Arrays.asList("java/util/zip/InflaterInputStream", "java/util/zip/ZipFile$ZipFileInputStream",
+            "java/util/zip/ZipFile$ZipFileInflaterInputStream", "com/newrelic/api/agent/security/.*", "com/newrelic/agent/security/.*"));
 
     static {
         DEFAULT_DISABLED_WEAVE_PACKAGES.add("com.newrelic.instrumentation.servlet-user");
@@ -90,6 +97,7 @@ final class ClassTransformerConfigImpl extends BaseConfig implements ClassTransf
     private final int maxPreValidatedClassLoaders;
     private final boolean preValidateWeavePackages;
     private final boolean preMatchWeaveMethods;
+    private final boolean isEnhancedSpringTransactionNaming;
 
     private final AnnotationMatcher ignoreTransactionAnnotationMatcher;
     private final AnnotationMatcher ignoreApdexAnnotationMatcher;
@@ -97,15 +105,16 @@ final class ClassTransformerConfigImpl extends BaseConfig implements ClassTransf
     private final boolean defaultMethodTracingEnabled;
     private final boolean isBuiltinExtensionEnabled;
     private final boolean litemode;
+    private final long autoAsyncLinkRateLimit;
 
-    public ClassTransformerConfigImpl(Map<String, Object> props, boolean customTracingEnabled, boolean litemode) {
+    public ClassTransformerConfigImpl(Map<String, Object> props, boolean customTracingEnabled, boolean litemode, boolean addSecurityExcludes) {
         super(props, SYSTEM_PROPERTY_ROOT);
         this.custom_tracing = customTracingEnabled;
         this.litemode = litemode;
         isEnabled = getProperty(ENABLED, DEFAULT_ENABLED);
         isDefaultInstrumentationEnabled = getDefaultInstrumentationEnabled();
         isBuiltinExtensionEnabled = getBuiltinExensionEnabled();
-        excludes = Collections.unmodifiableSet(new HashSet<>(getUniqueStrings(EXCLUDES)));
+        excludes = initializeClassExcludes(addSecurityExcludes);
         includes = Collections.unmodifiableSet(new HashSet<>(getUniqueStrings(INCLUDES)));
         classloaderExclusions = initializeClassloaderExcludes();
         classloaderDelegationExcludes = initializeClassloaderDelegationExcludes();
@@ -117,6 +126,8 @@ final class ClassTransformerConfigImpl extends BaseConfig implements ClassTransf
         preValidateWeavePackages = getProperty(PREVALIDATE_WEAVE_PACKAGES, DEFAULT_PREVALIDATE_WEAVE_PACKAGES);
         preMatchWeaveMethods = getProperty(PREMATCH_WEAVE_METHODS, DEFAULT_PREMATCH_WEAVE_METHODS);
         defaultMethodTracingEnabled = getProperty("default_method_tracing_enabled", true);
+        autoAsyncLinkRateLimit = getProperty("auto_async_link_rate_limit", TimeUnit.SECONDS.toMillis(1));
+        isEnhancedSpringTransactionNaming = getProperty(ENHANCED_SPRING_TRANSACTION_NAMING, DEFAULT_ENHANCED_SPRING_TRANSACTION_NAMING);
 
         this.traceAnnotationMatcher = customTracingEnabled ? initializeTraceAnnotationMatcher(props) : new NoMatchAnnotationMatcher();
         this.ignoreTransactionAnnotationMatcher = new ClassNameAnnotationMatcher(AnnotationNames.NEW_RELIC_IGNORE_TRANSACTION, false);
@@ -124,7 +135,7 @@ final class ClassTransformerConfigImpl extends BaseConfig implements ClassTransf
     }
 
     public ClassTransformerConfigImpl(Map<String, Object> props, boolean customTracingEnabled) {
-        this(props, customTracingEnabled, false);
+        this(props, customTracingEnabled, false, false);
     }
 
     private boolean getBuiltinExensionEnabled() {
@@ -147,6 +158,15 @@ final class ClassTransformerConfigImpl extends BaseConfig implements ClassTransf
             Agent.LOG.info("Instrumentation is disabled by default");
             return DEFAULT_DISABLED;
         }
+    }
+
+    private Set<String> initializeClassExcludes(boolean addSecurityExcludes) {
+        HashSet<String> tempExcludes = new HashSet<>(getUniqueStrings(EXCLUDES));
+        if (addSecurityExcludes) {
+            tempExcludes.addAll(SECURITY_AGENT_CLASS_EXCLUDES);
+        }
+
+        return Collections.unmodifiableSet(new HashSet<>(tempExcludes));
     }
 
     private Set<String> initializeClassloaderExcludes() {
@@ -180,6 +200,7 @@ final class ClassTransformerConfigImpl extends BaseConfig implements ClassTransf
         List<AnnotationMatcher> matchers = new ArrayList<>();
         matchers.add(new ClassNameAnnotationMatcher(Type.getType(DEPRECATED_NEW_RELIC_TRACE_TYPE_DESC).getDescriptor()));
         matchers.add(new ClassNameAnnotationMatcher(Type.getType(NEW_RELIC_TRACE_TYPE_DESC).getDescriptor()));
+        matchers.add(new ClassNameAnnotationMatcher(Type.getType(OTEL_WITH_SPAN_TYPE_DESC).getDescriptor()));
 
         final Collection<String> traceAnnotationClassNames = getUniqueStrings("trace_annotation_class_name");
         if (traceAnnotationClassNames.isEmpty()) {
@@ -190,14 +211,7 @@ final class ClassTransformerConfigImpl extends BaseConfig implements ClassTransf
                 Agent.LOG.fine("Adding " + name + " as a Trace annotation");
                 internalizedNames.add(internalizeName(name));
             }
-            matchers.add(new AnnotationMatcher() {
-
-                @Override
-                public boolean matches(String annotationDesc) {
-                    return internalizedNames.contains(annotationDesc);
-                }
-
-            });
+            matchers.add(internalizedNames::contains);
         }
         return OrAnnotationMatcher.getOrMatcher(matchers.toArray(new AnnotationMatcher[0]));
     }
@@ -304,6 +318,16 @@ final class ClassTransformerConfigImpl extends BaseConfig implements ClassTransf
         return preMatchWeaveMethods;
     }
 
+    @Override
+    public long getAutoAsyncLinkRateLimit() {
+        return autoAsyncLinkRateLimit;
+    }
+
+    @Override
+    public boolean isEnhancedSpringTransactionNaming() {
+        return isEnhancedSpringTransactionNaming;
+    }
+
     public static final String JDBC_STATEMENTS_PROPERTY = "jdbc_statements";
 
     @Override
@@ -315,11 +339,11 @@ final class ClassTransformerConfigImpl extends BaseConfig implements ClassTransf
         return Arrays.asList(jdbcStatementsProp.split(",[\\s]*"));
     }
 
-    static ClassTransformerConfig createClassTransformerConfig(Map<String, Object> settings, boolean custom_tracing, boolean litemode) {
+    static ClassTransformerConfig createClassTransformerConfig(Map<String, Object> settings, boolean custom_tracing, boolean litemode, boolean addSecurityExcludes) {
         if (settings == null) {
             settings = Collections.emptyMap();
         }
-        return new ClassTransformerConfigImpl(settings, custom_tracing, litemode);
+        return new ClassTransformerConfigImpl(settings, custom_tracing, litemode, addSecurityExcludes);
     }
 
     @Override

@@ -318,11 +318,11 @@ public interface AgentConfig extends com.newrelic.api.agent.Config, DataSenderCo
 
     boolean liteMode();
 
+    boolean legacyAsyncApiSkipSuspend();
+
     int getSegmentTimeoutInSec();
 
     int getTokenTimeoutInSec();
-
-    boolean openTracingEnabled();
 
     /**
      * How long to wait (in milliseconds) for all transactions to finish before allowing the application to shutdown
@@ -350,4 +350,7 @@ public interface AgentConfig extends com.newrelic.api.agent.Config, DataSenderCo
     CommandParserConfig getCommandParserConfig();
 
     InfiniteTracingConfig getInfiniteTracingConfig();
+
+    SlowTransactionsConfig getSlowTransactionsConfig();
+
 }

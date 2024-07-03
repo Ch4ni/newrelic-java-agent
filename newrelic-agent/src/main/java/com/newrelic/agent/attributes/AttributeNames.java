@@ -25,14 +25,23 @@ public final class AttributeNames {
     public static final String SYNTHETICS_RESOURCE_ID = "synthetics_resource_id";
     public static final String SYNTHETICS_MONITOR_ID = "synthetics_monitor_id";
     public static final String SYNTHETICS_JOB_ID = "synthetics_job_id";
+    public static final String SYNTHETICS_TYPE = "synthetics_type";
+    public static final String SYNTHETICS_INITIATOR = "synthetics_initiator";
+    public static final String SYNTHETICS_VERSION = "synthetics_version";
     public static final String TIMEOUT_CAUSE = "nr.timeoutCause";
     public static final String ERROR_EXPECTED = "error.expected";
 
+    public static final String CODE_STACKTRACE = "code.stacktrace";
+    public static final String COMPONENT = "component";
+    public static final String HTTP_METHOD = "http.method";
     public static final String HTTP_STATUS_CODE = "http.statusCode";
     public static final String HTTP_STATUS_TEXT = "http.statusText";
+    public static final String HTTP_STATUS = "httpResponseCode";
+    public static final String HTTP_STATUS_MESSAGE = "httpResponseMessage";
 
     public static final String LOCK_THREAD_NAME = "jvm.lock_thread_name";
     public static final String THREAD_NAME = "jvm.thread_name";
+    public static final String THREAD_ID = "thread.id";
 
     public static final String MESSAGE_REQUEST_PREFIX = "message.parameters.";
 
@@ -43,6 +52,11 @@ public final class AttributeNames {
     public static final String REQUEST_HOST_PARAMETER_NAME = "request.headers.host";
     public static final String REQUEST_USER_AGENT_PARAMETER_NAME = "request.headers.userAgent";
     public static final String REQUEST_METHOD_PARAMETER_NAME = "request.method";
+
+    // cloud provider fields
+    public static final String CLOUD_RESOURCE_ID = "cloud.resource_id";
+    public static final String CLOUD_ACCOUNT_ID = "cloud.account.id";
+    public static final String CLOUD_REGION = "cloud.region";
 
     public static final String RESPONSE_CONTENT_TYPE_PARAMETER_NAME = "response.headers.contentType";
 
@@ -69,4 +83,9 @@ public final class AttributeNames {
     // Code Level Metrics
     public static final String CLM_NAMESPACE = "code.namespace";
     public static final String CLM_FUNCTION = "code.function";
+
+    // OTEL attrs
+    public static final String DB_SYSTEM = "db.system";
+    public static final String MESSAGING_SYSTEM = "messaging.system";
+    public static final String MESSAGING_DESTINATION_NAME = "messaging.destination.name";
 }

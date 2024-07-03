@@ -36,6 +36,7 @@ public final class NewRelic {
      * @since 1.3.0
      */
     public static void recordMetric(String name, float value) {
+        getAgent().getMetricAggregator().recordMetric(name, value);
     }
 
     /**
@@ -46,6 +47,7 @@ public final class NewRelic {
      * @since 1.3.0
      */
     public static void recordResponseTimeMetric(String name, long millis) {
+        getAgent().getMetricAggregator().recordMetric(name, millis);
     }
 
     /**
@@ -55,6 +57,7 @@ public final class NewRelic {
      * @since 1.3.0
      */
     public static void incrementCounter(String name) {
+        getAgent().getMetricAggregator().incrementCounter(name);
     }
 
     /**
@@ -65,6 +68,7 @@ public final class NewRelic {
      * @since 2.21.0
      */
     public static void incrementCounter(String name, int count) {
+        getAgent().getMetricAggregator().incrementCounter(name, count);
     }
 
     // ************************** Error API ***********************************//
@@ -86,6 +90,7 @@ public final class NewRelic {
      * @since 1.3.0
      */
     public static void noticeError(Throwable throwable, Map<String, ?> params) {
+        getAgent().getErrorApi().noticeError(throwable, params);
     }
 
     /**
@@ -96,6 +101,7 @@ public final class NewRelic {
      * @since 1.3.0
      */
     public static void noticeError(Throwable throwable) {
+        getAgent().getErrorApi().noticeError(throwable);
     }
 
     /**
@@ -115,6 +121,7 @@ public final class NewRelic {
      * @since 1.3.0
      */
     public static void noticeError(String message, Map<String, ?> params) {
+        getAgent().getErrorApi().noticeError(message, params);
     }
 
     /**
@@ -127,6 +134,7 @@ public final class NewRelic {
      * @since 2.21.0
      */
     public static void noticeError(String message) {
+        getAgent().getErrorApi().noticeError(message);
     }
 
     /**
@@ -149,6 +157,7 @@ public final class NewRelic {
      * @since 3.38.0
      */
     public static void noticeError(Throwable throwable, Map<String, ?> params, boolean expected) {
+        getAgent().getErrorApi().noticeError(throwable, params, expected);
     }
 
     /**
@@ -162,6 +171,7 @@ public final class NewRelic {
      * @since 3.38.0
      */
     public static void noticeError(Throwable throwable, boolean expected) {
+        getAgent().getErrorApi().noticeError(throwable, expected);
     }
 
     /**
@@ -184,6 +194,7 @@ public final class NewRelic {
      * @since 3.38.0
      */
     public static void noticeError(String message, Map<String, ?> params, boolean expected) {
+        getAgent().getErrorApi().noticeError(message, params, expected);
     }
 
     /**
@@ -199,6 +210,7 @@ public final class NewRelic {
      * @since 3.38.0
      */
     public static void noticeError(String message, boolean expected) {
+        getAgent().getErrorApi().noticeError(message, expected);
     }
 
     // **************************** Transaction APIs ********************************//
@@ -265,6 +277,16 @@ public final class NewRelic {
     }
 
     /**
+     * Sets the user ID for the current transaction by adding the "enduser.id" agent attribute. It is reported in errors and transaction traces.
+     * When high security mode is enabled, this method call will do nothing.
+     *
+     * @param userId The user ID to report. If it is a null or blank String, the "enduser.id" agent attribute will not be included in the current transaction and any associated errors.
+     * @since 8.1.0
+     */
+    public static void setUserId(String userId) {
+    }
+
+    /**
      * Set the name of the current transaction.
      *
      * @param category Metric category. If the input is null, then the default will be used.
@@ -280,6 +302,7 @@ public final class NewRelic {
      * @since 1.3.0
      */
     public static void ignoreTransaction() {
+        getAgent().getTransaction().ignore();
     }
 
     /**
@@ -288,6 +311,7 @@ public final class NewRelic {
      * @since 1.3.0
      */
     public static void ignoreApdex() {
+        getAgent().getTransaction().ignoreApdex();
     }
 
     /**
@@ -347,6 +371,7 @@ public final class NewRelic {
 
     /**
      * Set the user name to associate with the RUM JavaScript footer for the current web transaction.
+     * If high security mode is enabled, this method call does nothing.
      *
      * <p>
      * <b>Note:</b> The user {@code name} argument has a limit of 255 bytes, encoded with UTF-8 encoding. A {@code name}
@@ -416,6 +441,19 @@ public final class NewRelic {
      * @since 3.36.0
      */
     public static void setInstanceName(String instanceName) {
+    }
+
+
+    /**
+     * Registers an {@link ErrorGroupCallback} that's used to generate a grouping key for the supplied
+     * error. This key will be used to group similar error messages on the Errors Inbox UI. If the
+     * errorGroupCallback instance is null no grouping key will be generated.
+     *
+     * @param errorGroupCallback the ErrorGroupCallback used to generate grouping keys for errors
+     * @since 8.10.0
+     */
+    public static void setErrorGroupCallback(ErrorGroupCallback errorGroupCallback){
+        getAgent().getErrorApi().setErrorGroupCallback(errorGroupCallback);
     }
 
 }

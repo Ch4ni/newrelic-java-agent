@@ -29,6 +29,7 @@ import java.lang.instrument.Instrumentation;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -339,7 +340,10 @@ public class WeavePackageManager {
 
         ClassNode composite = WeaveUtils.convertToClassNode(targetBytes);
         PackageWeaveResult finalResult = null;
-        for (PackageValidationResult weavePackageResult : matchedPackageResults) {
+
+        List<PackageValidationResult> sortedMatchedPackages = new ArrayList<>(matchedPackageResults);
+        sortedMatchedPackages.sort(PackageValidationResult.CONFIG_COMPARATOR);
+        for (PackageValidationResult weavePackageResult : sortedMatchedPackages) {
             PackageWeaveResult result = weavePackageResult.weave(className, superNames, interfaceNames, composite,
                                                                  cache, skipMethods);
             if (null != weaveListener) {
@@ -510,6 +514,7 @@ public class WeavePackageManager {
                 if (null != packageListener) {
                     packageListener.validated(verificationResult, classloader);
                 }
+
                 if ((classloader == BootstrapLoader.PLACEHOLDER && !this.canWeaveBootstrapClassLoader())
                         || (!verificationResult.succeeded())) {
                     ConcurrentMap<WeavePackage, PackageValidationResult> result = invalidPackages.asMap().putIfAbsent(

@@ -7,6 +7,7 @@
 
 package com.newrelic.agent.bridge;
 
+import com.newrelic.api.agent.ErrorApi;
 import com.newrelic.api.agent.Request;
 import com.newrelic.api.agent.Response;
 
@@ -15,113 +16,7 @@ import java.util.Map;
 /**
  * The public api interface.
  */
-public interface PublicApi {
-
-    // ************************** Error collector ***********************************//
-
-    /**
-     * Notice an exception and report it to New Relic. If this method is called within a transaction, the exception will
-     * be reported with the transaction when it finishes. If it is invoked outside of a transaction, a traced error will
-     * be created and reported to New Relic. If noticeError is invoked multiple times while in a transaction, only the
-     * last error will be reported.
-     *
-     * @param throwable The throwable to notice and report.
-     * @param params Custom parameters to include in the traced error. May be null.
-     */
-    void noticeError(Throwable throwable, Map<String, ?> params);
-
-    /**
-     * Report an exception to New Relic.
-     *
-     * @param throwable The throwable to report.
-     * @see #noticeError(Throwable, Map)
-     */
-    void noticeError(Throwable throwable);
-
-    /**
-     * Notice an error and report it to New Relic. If this method is called within a transaction, the error message will
-     * be reported with the transaction when it finishes. If it is invoked outside of a transaction, a traced error will
-     * be created and reported to New Relic. If noticeError is invoked multiple times while in a transaction, only the
-     * last error will be reported.
-     *
-     * @param message The error message to be reported.
-     * @param params Custom parameters to include in the traced error. May be null.
-     */
-    void noticeError(String message, Map<String, ?> params);
-
-    /**
-     * Notice an error and report it to New Relic. If this method is called within a transaction, the error message will
-     * be reported with the transaction when it finishes. If it is invoked outside of a transaction, a traced error will
-     * be created and reported to New Relic. If noticeError is invoked multiple times while in a transaction, only the
-     * last error will be reported.
-     *
-     * @param message Message to report with a transaction when it finishes.
-     */
-    void noticeError(String message);
-
-    /**
-     * Notice an exception and report it to New Relic. If this method is called within a transaction, the exception will
-     * be reported with the transaction when it finishes. If it is invoked outside of a transaction, a traced error will
-     * be created and reported to New Relic. If noticeError is invoked multiple times while in a transaction, only the
-     * last error will be reported.
-     *
-     * Expected errors do not increment an application's error count or contribute towards its Apdex score.
-     *
-     * <p>
-     * <b>Note:</b> The key and value pairs in custom parameters {@code params} will be dropped or modified in the
-     * traced error if the key or value, each, cannot be encoded in 255 bytes. If key or value is over this limit, the
-     * behavior will be the same as defined in {@link #addCustomParameter(String key, String value) addCustomParameter}.
-     * </p>
-     *
-     * @param throwable The throwable to notice and report.
-     * @param params Custom parameters to include in the traced error. May be null.
-     * @param expected true if this error is expected, false otherwise.
-     */
-    void noticeError(Throwable throwable, Map<String, ?> params, boolean expected);
-
-    /**
-     * Report an exception to New Relic.
-     *
-     * Expected errors do not increment an application's error count or contribute towards its Apdex score.
-     *
-     * @param throwable The throwable to report.
-     * @param expected true if this error is expected, false otherwise.
-     * @see #noticeError(Throwable, Map)
-     */
-    void noticeError(Throwable throwable, boolean expected);
-
-    /**
-     * Notice an error and report it to New Relic. If this method is called within a transaction, the error message will
-     * be reported with the transaction when it finishes. If it is invoked outside of a transaction, a traced error will
-     * be created and reported to New Relic. If noticeError is invoked multiple times while in a transaction, only the
-     * last error will be reported.
-     *
-     * Expected errors do not increment an application's error count or contribute towards its Apdex score.
-     *
-     * <p>
-     * <b>Note:</b> The key and value pairs in custom parameters {@code params} will be dropped or modified in the
-     * traced error if the key or value, each, cannot be encoded in 255 bytes. If key or value is over this limit, the
-     * behavior will be the same as defined in {@link #addCustomParameter(String key, String value) addCustomParameter}.
-     * </p>
-     *
-     * @param message The error message to be reported.
-     * @param params Custom parameters to include in the traced error. May be null.
-     * @param expected true if this error is expected, false otherwise.
-     */
-    void noticeError(String message, Map<String, ?> params, boolean expected);
-
-    /**
-     * Notice an error and report it to New Relic. If this method is called within a transaction, the error message will
-     * be reported with the transaction when it finishes. If it is invoked outside of a transaction, a traced error will
-     * be created and reported to New Relic. If noticeError is invoked multiple times while in a transaction, only the
-     * last error will be reported.
-     *
-     * Expected errors do not increment an application's error count or contribute towards its Apdex score.
-     *
-     * @param message Message to report with a transaction when it finishes.
-     * @param expected true if this error is expected, false otherwise.
-     */
-    void noticeError(String message, boolean expected);
+public interface PublicApi extends ErrorApi {
 
     // **************************** Transaction APIs ********************************//
 
@@ -155,6 +50,14 @@ public interface PublicApi {
      * @param params Custom parameters to include.
      */
     void addCustomParameters(Map<String, Object> params);
+
+    /**
+     * Sets the user ID for the current transaction by adding the "enduser.id" agent attribute. It is reported in errors and transaction traces.
+     * When high security mode is enabled, this method call will do nothing.
+     *
+     * @param userId The user ID to report. If it is a null or blank String, the "enduser.id" agent attribute will not be included in the current transaction and any associated errors.
+     */
+    void setUserId(String userId);
 
     /**
      * Set the name of the current transaction.
@@ -204,19 +107,27 @@ public interface PublicApi {
     /**
      * Get the RUM JavaScript footer for the current web transaction.
      *
+     * @deprecated The full browser script is now included when calling {@link PublicApi#getBrowserTimingHeader}
+     * or {@link PublicApi#getBrowserTimingHeader(String)}
+     *
      * @return RUM JavaScript footer for the current web transaction.
      */
     String getBrowserTimingFooter();
 
     /**
      * Get the RUM JavaScript footer for the current web transaction.
+     *
      * @param nonce a random per-request nonce for sites using Content Security Policy (CSP)
+     * @deprecated The full browser script is not included when calling {@link PublicApi#getBrowserTimingHeader}
+     * or {@link PublicApi#getBrowserTimingHeader(String)}
+     *
      * @return RUM JavaScript footer for the current web transaction.
      */
     String getBrowserTimingFooter(String nonce);
 
     /**
      * Set the user name to associate with the RUM JavaScript footer for the current web transaction.
+     * If high security mode is enabled, this method call does nothing.
      *
      * @param name User name to associate with the RUM JavaScript footer.
      */
@@ -258,5 +169,4 @@ public interface PublicApi {
      * @param instanceName the instance name to set in the environment
      */
     void setInstanceName(String instanceName);
-
 }

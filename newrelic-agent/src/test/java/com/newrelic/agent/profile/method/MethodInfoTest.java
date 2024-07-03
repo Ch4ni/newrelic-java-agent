@@ -8,6 +8,9 @@
 package com.newrelic.agent.profile.method;
 
 import com.newrelic.agent.profile.TestFileWithLineNumbers;
+import com.newrelic.agent.profile.v2.Murmur3StringMap;
+import com.newrelic.agent.util.StringMap;
+import com.newrelic.agent.util.asm.ClassStructure;
 import org.junit.Assert;
 import org.junit.Test;
 import org.objectweb.asm.Type;
@@ -24,6 +27,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class MethodInfoTest {
 
@@ -48,6 +52,16 @@ public class MethodInfoTest {
         verifyAndGetArgsForConstructorsNoLineNumbers(new TestFileWithLineNumbers(new Object(),
                 new ArrayList<String>(), "1234", new HashSet<>()));
 
+    }
+
+    @Test
+    public void getJsonMethodMaps() {
+        MethodInfo info = MethodInfoUtil.createMethodInfo(TestFileWithLineNumbers.class, "instrumentedMethod", -1);
+        StringMap stringMap = new Murmur3StringMap();
+        stringMap.addString("instrumentedMethod");
+        List<Map<String, Object>> results = info.getJsonMethodMaps(stringMap);
+        Assert.assertNotNull(results);
+        Assert.assertEquals(1, results.size());
     }
 
     private void verifyAndGetArgsForConstructorsNoLineNumbers(TestFileWithLineNumbers newClass) {
@@ -178,9 +192,10 @@ public class MethodInfoTest {
                 return myField;
             }
         }
-
-        Method[] m = ClassWithStuffa.class.getDeclaredMethods();
+        // jacoco coverage inserts itself into our tests causing conflicts in these assertions.
+        Method[] m = filterJacocoMethods(ClassWithStuffa.class.getDeclaredMethods());
         Assert.assertEquals(1, m.length);
+
         MethodInfo actual = MethodInfoUtil.getMethodInfo(ClassWithStuffa.class, m[0].getName(), "()V");
         Assert.assertNotNull(actual);
         List<Map<String, Object>> secondActual = actual.getJsonMethodMaps();
@@ -192,6 +207,15 @@ public class MethodInfoTest {
         List<String> args = (List<String>) methodData.get("args");
         Assert.assertNotNull(args);
         Assert.assertEquals(0, args.size());
+
+        Constructor[] c = ClassWithStuffa.class.getConstructors();
+        Assert.assertEquals(1, c.length);
+        MethodInfo constructor = MethodInfoUtil.getMethodInfo(ClassWithStuffa.class, "<init>", "(Lcom/newrelic/agent/profile/method/MethodInfoTest;)V");
+        Assert.assertNotNull(constructor);
+        Assert.assertTrue(constructor instanceof ExactMethodInfo);
+        MethodInfo wrongParam = MethodInfoUtil.getMethodInfo(ClassWithStuffa.class, "<init>", "(LI;)V");
+        Assert.assertNotNull(wrongParam);
+        Assert.assertTrue(wrongParam instanceof MultipleMethodInfo);
 
         class ClassWithStuffb {
 
@@ -275,7 +299,9 @@ public class MethodInfoTest {
             }
         }
         List<Member> output = new ArrayList<>();
-        Method[] m = ClassWithStuffa.class.getDeclaredMethods();
+
+        // jacoco will cause issues here
+        Method[] m = filterJacocoMethods(ClassWithStuffa.class.getDeclaredMethods());
         Assert.assertEquals(1, m.length);
         boolean actual = MethodInfoUtil.getMethod(output, ClassWithStuffa.class, m[0].getName(),
                 new ArrayList<String>());
@@ -357,7 +383,7 @@ public class MethodInfoTest {
                 return myField;
             }
         }
-        Method[] m = ClassWithStuffa.class.getDeclaredMethods();
+        Method[] m = filterJacocoMethods(ClassWithStuffa.class.getDeclaredMethods());
         Assert.assertEquals(1, m.length);
         Set<Member> actual = MethodInfoUtil.getMatchingMethods(ClassWithStuffa.class, m[0].getName());
         Assert.assertEquals(1, actual.size());
@@ -455,18 +481,18 @@ public class MethodInfoTest {
                 return myField;
             }
         }
-        Method[] m = ClassWithStuffa.class.getDeclaredMethods();
+        Method[] m = filterJacocoMethods(ClassWithStuffa.class.getDeclaredMethods());
         Assert.assertEquals(1, m.length);
         List<String> args = assertBasicsAndReturnArgsForGetArgs(m[0]);
         Assert.assertEquals(0, args.size());
 
-        m = ClassWithStuff1.class.getDeclaredMethods();
+        m = filterJacocoMethods(ClassWithStuff1.class.getDeclaredMethods());
         Assert.assertEquals(1, m.length);
         args = assertBasicsAndReturnArgsForGetArgs(m[0]);
         Assert.assertEquals(1, args.size());
         Assert.assertEquals("int", args.get(0));
 
-        m = ClassWithStuff2.class.getDeclaredMethods();
+        m = filterJacocoMethods(ClassWithStuff2.class.getDeclaredMethods());
         Assert.assertEquals(1, m.length);
         args = assertBasicsAndReturnArgsForGetArgs(m[0]);
         Assert.assertEquals(4, args.size());
@@ -475,7 +501,7 @@ public class MethodInfoTest {
         Assert.assertEquals("int", args.get(2));
         Assert.assertEquals("long", args.get(3));
 
-        m = ClassWithStuff3.class.getDeclaredMethods();
+        m = filterJacocoMethods(ClassWithStuff3.class.getDeclaredMethods());
         Assert.assertEquals(1, m.length);
         args = assertBasicsAndReturnArgsForGetArgs(m[0]);
         Assert.assertEquals(5, args.size());
@@ -560,6 +586,16 @@ public class MethodInfoTest {
         public void bar(String a, List<String> b, Integer d, int[] e, Object f) {
 
         }
+    }
+
+
+
+    // jacoco inserts itself into our tests causing ocnflicts with assertions.
+    // we need to filter out these methods.
+    private Method[] filterJacocoMethods(Method[] methods) {
+        return Arrays.stream(methods)
+                .filter(method -> !method.toString().contains("$jacoco"))
+                .toArray(Method[]::new);
     }
 
 }

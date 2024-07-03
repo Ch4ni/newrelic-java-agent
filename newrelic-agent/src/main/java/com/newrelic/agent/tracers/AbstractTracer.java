@@ -8,7 +8,6 @@
 package com.newrelic.agent.tracers;
 
 import com.newrelic.agent.Agent;
-import com.newrelic.api.agent.AttributeHolder;
 import com.newrelic.agent.MetricNames;
 import com.newrelic.agent.Transaction;
 import com.newrelic.agent.TransactionActivity;
@@ -18,6 +17,7 @@ import com.newrelic.agent.bridge.TracedMethod;
 import com.newrelic.agent.bridge.TransactionNamePriority;
 import com.newrelic.agent.instrumentation.AgentWrapper;
 import com.newrelic.agent.util.Strings;
+import com.newrelic.api.agent.AttributeHolder;
 import com.newrelic.api.agent.ExternalParameters;
 import com.newrelic.api.agent.InboundHeaders;
 import com.newrelic.api.agent.OutboundHeaders;
@@ -40,7 +40,7 @@ import java.util.logging.Level;
 public abstract class AbstractTracer implements Tracer, AttributeHolder {
 
     static final int INITIAL_PARAMETER_MAP_SIZE = 5;
-    protected static String ATTRIBUTE_TYPE = "custom";
+    protected static final String ATTRIBUTE_TYPE = "custom";
 
     private final TransactionActivity transactionActivity;
     private AttributeValidator attributeValidator;
@@ -342,7 +342,7 @@ public abstract class AbstractTracer implements Tracer, AttributeHolder {
     }
 
     private boolean shouldAddAttribute() {
-        return !getTransaction().getTransactionCounts().isOverTracerSegmentLimit();
+        return getTransaction() != null && !getTransaction().getTransactionCounts().isOverTracerSegmentLimit();
     }
 
     public void setAttribute(String key, Object value, boolean checkLimits, boolean isCustom) {

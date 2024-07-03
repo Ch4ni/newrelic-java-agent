@@ -64,6 +64,15 @@ public interface Agent {
     Insights getInsights();
 
     /**
+     * Provides access to the AI Monitoring custom events API.
+     *
+     * @return Object for recording custom events.
+     */
+    AiMonitoring getAiMonitoring();
+
+    ErrorApi getErrorApi();
+
+    /**
      * Provides access to the Trace Metadata API for details about the currently executing distributed trace.
      *
      * @return trace metadata API class

@@ -22,8 +22,6 @@ import com.newrelic.agent.bridge.ExitTracer;
 import com.newrelic.agent.bridge.NoOpToken;
 import com.newrelic.agent.bridge.Token;
 import com.newrelic.agent.bridge.TransactionNamePriority;
-import com.newrelic.api.agent.Logs;
-import com.newrelic.api.agent.TransportType;
 import com.newrelic.agent.bridge.WebResponse;
 import com.newrelic.agent.browser.BrowserTransactionState;
 import com.newrelic.agent.browser.BrowserTransactionStateImpl;
@@ -79,10 +77,13 @@ import com.newrelic.api.agent.DistributedTracePayload;
 import com.newrelic.api.agent.HeaderType;
 import com.newrelic.api.agent.InboundHeaders;
 import com.newrelic.api.agent.Insights;
+import com.newrelic.api.agent.Logs;
 import com.newrelic.api.agent.MetricAggregator;
 import com.newrelic.api.agent.NewRelic;
 import com.newrelic.api.agent.Request;
 import com.newrelic.api.agent.Response;
+import com.newrelic.api.agent.security.schema.SecurityMetaData;
+import com.newrelic.api.agent.TransportType;
 import org.objectweb.asm.Opcodes;
 
 import java.lang.management.GarbageCollectorMXBean;
@@ -125,9 +126,9 @@ public class Transaction {
     static final ClassMethodSignature REQUEST_INITIALIZED_CLASS_SIGNATURE = new ClassMethodSignature(
             "javax.servlet.ServletRequestListener", "requestInitialized", "(Ljavax/servlet/ServletRequestEvent;)V");
     static final int REQUEST_INITIALIZED_CLASS_SIGNATURE_ID = ClassMethodSignatures.get().add(REQUEST_INITIALIZED_CLASS_SIGNATURE);
-  static final ClassMethodSignature SCALA_API_TXN_CLASS_SIGNATURE = new ClassMethodSignature(
+    static final ClassMethodSignature SCALA_API_TXN_CLASS_SIGNATURE = new ClassMethodSignature(
     "newrelic.scala.api.TraceOps$", "txn", null);
-  public static final int SCALA_API_TXN_CLASS_SIGNATURE_ID =
+    public static final int SCALA_API_TXN_CLASS_SIGNATURE_ID =
     ClassMethodSignatures.get().add(SCALA_API_TXN_CLASS_SIGNATURE);
     private static final String THREAD_ASSERTION_FAILURE = "Thread assertion failed!";
 
@@ -219,12 +220,7 @@ public class Transaction {
     // The appNameAndConfig combo has a deceptively complex behavior: we want both threadsafe lazy
     // initialization with lock-free updates. Setters must have priority over initialization.
 
-    private Callable<AppNameAndConfig> appNameAndConfigInitializer = new Callable<AppNameAndConfig>() {
-        @Override
-        public AppNameAndConfig call() throws Exception {
-            return AppNameAndConfig.getDefault();
-        }
-    };
+    private Callable<AppNameAndConfig> appNameAndConfigInitializer = AppNameAndConfig::getDefault;
     private LazyAtomicReference<AppNameAndConfig> appNameAndConfig = new LazyAtomicReference<>(appNameAndConfigInitializer);
 
     // (4) State that is guarded using the lock. Referenced objects must be threadsafe.
@@ -241,6 +237,8 @@ public class Transaction {
 
     // count of active tokens and tracers
     private final AtomicInteger activeCount;
+
+    private final SecurityMetaData securityMetaData;
 
     private final MetricAggregator metricAggregator = new AbstractMetricAggregator() {
         @Override
@@ -456,6 +454,7 @@ public class Transaction {
         runningChildren = new LazyMapImpl<>(factory);
         activeTokensCache = new AtomicReference<>();
         activeCount = new AtomicInteger(0);
+        securityMetaData = new SecurityMetaData();
     }
 
     // This method must be called after construction. This is ugly, but avoids
@@ -738,6 +737,12 @@ public class Transaction {
             TransactionNamePriority priority) {
         synchronized (lock) {
             MetricNames.recordApiSupportabilityMetric(MetricNames.SUPPORTABILITY_API_SET_TRANSACTION_NAME);
+
+            if (NewRelic.getAgent().getLogger().isLoggable(Level.FINEST)) {
+                Agent.LOG.log(Level.FINEST, "newrelic.agent.Transaction::conditionalSetPriorityTransactionName: Attempting to set txn name: " +
+                                "TxnNamingPolicy: {0}, name: {1}, category: {2}, TxnNamePriority {3}",
+                        policy.toString(), name, category, priority.toString());
+            }
 
             if (policy.canSetTransactionName(this, priority)) {
                 if (Agent.LOG.isFinestEnabled()) {
@@ -1088,6 +1093,25 @@ public class Transaction {
                             this.getInboundHeaderState().getSyntheticsMonitorId());
                     getIntrinsicAttributes().put(AttributeNames.SYNTHETICS_JOB_ID,
                             this.getInboundHeaderState().getSyntheticsJobId());
+                    getIntrinsicAttributes().put(AttributeNames.SYNTHETICS_VERSION,
+                            String.valueOf(this.getInboundHeaderState().getSyntheticsVersion()));
+                    if (this.getInboundHeaderState().getSyntheticsType() != null) {
+                        getIntrinsicAttributes().put(AttributeNames.SYNTHETICS_TYPE,
+                                this.getInboundHeaderState().getSyntheticsType());
+                    }
+                    if (this.getInboundHeaderState().getSyntheticsInitiator() != null) {
+                        getIntrinsicAttributes().put(AttributeNames.SYNTHETICS_INITIATOR,
+                                this.getInboundHeaderState().getSyntheticsInitiator());
+                    }
+                    if (this.getInboundHeaderState().getSyntheticsAttrs() != null) {
+                        Map<String, String> attrsMap = this.getInboundHeaderState().getSyntheticsAttrs();
+                        String attrName;
+
+                        for (String key : attrsMap.keySet()) {
+                            attrName = String.format("synthetics_%s", key);
+                            getIntrinsicAttributes().put(attrName, attrsMap.get(key));
+                        }
+                    }
                 }
 
                 if (timeoutCause != null && timeoutCause.cause != null) {
@@ -1327,14 +1351,17 @@ public class Transaction {
         return this.inboundHeaderState;
     }
 
+
     /**
      * package visibility for testing only.
      */
     static InboundHeaders getRequestHeaders(Transaction tx) {
         if (tx.dispatcher != null) {
             if (tx.dispatcher.getRequest() != null) {
-                return new DeobfuscatedInboundHeaders(tx.dispatcher.getRequest(),
-                        tx.getCrossProcessConfig().getEncodingKey());
+                String encodingKey = tx.getCrossProcessConfig().isCrossApplicationTracing()
+                        ? tx.getCrossProcessConfig().getEncodingKey()
+                        : tx.getCrossProcessConfig().getSyntheticsEncodingKey();
+                return new DeobfuscatedInboundHeaders(tx.dispatcher.getRequest(), encodingKey);
             }
         }
         return null;
@@ -1415,6 +1442,7 @@ public class Transaction {
         synchronized (newTx.lock) {
             if (!newTx.isInProgress()) {
                 Agent.LOG.log(Level.FINER, "Transaction {0}: ignoring link call because transaction not in progress.", newTx);
+                AgentBridge.instrumentation.instrument();
                 return false;
             } else if (!token.isActive()) {
                 Agent.LOG.log(Level.FINER, "Transaction {0}: ignoring link call because token is no longer active {1}.", newTx, token);
@@ -1423,6 +1451,7 @@ public class Transaction {
                 TransactionActivity oldTxa = TransactionActivity.get();
                 if (oldTxa == null || !oldTxa.isStarted()) {
                     Agent.LOG.log(Level.FINER, "Transaction {0}: ignoring link call because there is no started txa to link to: {1}.", newTx, oldTxa);
+                    AgentBridge.instrumentation.instrument();
                     return false;
                 } else {
                     // don't worry about a race with expire, if tracer is not null we're fine because tracer is
@@ -2559,5 +2588,9 @@ public class Transaction {
         synchronized (lock) {
             return runningChildren.size() + finishedChildren.size();
         }
+    }
+
+    public SecurityMetaData getSecurityMetaData() {
+        return securityMetaData;
     }
 }

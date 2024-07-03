@@ -176,6 +176,11 @@ class NoOpAgent implements Agent {
         @Override
         public void acceptDistributedTraceHeaders(TransportType transportType, Headers headers) {
         }
+
+        @Override
+        public Object getSecurityMetaData() {
+            return new Object();
+        }
     };
 
     private static final Token TOKEN = new Token() {
@@ -197,6 +202,20 @@ class NoOpAgent implements Agent {
         @Override
         public boolean isActive() {
             return false;
+        }
+    };
+
+    private static final ErrorApi ERROR_API = new ErrorApi() {
+        @Override
+        public void noticeError(Throwable throwable, Map<String, ?> params, boolean expected) {
+        }
+
+        @Override
+        public void noticeError(String message, Map<String, ?> params, boolean expected) {
+        }
+
+        @Override
+        public void setErrorGroupCallback(ErrorGroupCallback errorGroupCallback) {
         }
     };
 
@@ -341,6 +360,14 @@ class NoOpAgent implements Agent {
         }
     };
 
+    private static final AiMonitoring AI_MONITORING = new AiMonitoring() {
+        @Override
+        public void recordLlmFeedbackEvent(Map<String, Object> llmFeedbackEventAttributes) {}
+
+        @Override
+        public void setLlmTokenCountCallback(LlmTokenCountCallback llmTokenCountCallback) {}
+    };
+
     private static final Segment SEGMENT = new Segment() {
         @Override
         public void setMetricName(String... metricNameParts) {
@@ -437,6 +464,16 @@ class NoOpAgent implements Agent {
     @Override
     public Insights getInsights() {
         return INSIGHTS;
+    }
+
+    @Override
+    public AiMonitoring getAiMonitoring() {
+        return AI_MONITORING;
+    }
+
+    @Override
+    public ErrorApi getErrorApi() {
+        return ERROR_API;
     }
 
     @Override

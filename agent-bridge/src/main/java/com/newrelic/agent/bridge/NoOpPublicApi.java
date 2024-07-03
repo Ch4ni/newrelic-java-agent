@@ -9,30 +9,11 @@ package com.newrelic.agent.bridge;
 
 import java.util.Map;
 
+import com.newrelic.api.agent.ErrorGroupCallback;
 import com.newrelic.api.agent.Request;
 import com.newrelic.api.agent.Response;
 
 class NoOpPublicApi implements PublicApi {
-
-    @Override
-    public void noticeError(Throwable throwable, Map<String, ?> params) {
-
-    }
-
-    @Override
-    public void noticeError(Throwable throwable) {
-
-    }
-
-    @Override
-    public void noticeError(String message, Map<String, ?> params) {
-
-    }
-
-    @Override
-    public void noticeError(String message) {
-
-    }
 
     @Override
     public void noticeError(Throwable throwable, Map<String, ?> params, boolean expected) {
@@ -40,17 +21,7 @@ class NoOpPublicApi implements PublicApi {
     }
 
     @Override
-    public void noticeError(Throwable throwable, boolean expected) {
-
-    }
-
-    @Override
     public void noticeError(String message, Map<String, ?> params, boolean expected) {
-
-    }
-
-    @Override
-    public void noticeError(String message, boolean expected) {
 
     }
 
@@ -71,6 +42,11 @@ class NoOpPublicApi implements PublicApi {
 
     @Override
     public void addCustomParameters(Map<String, Object> params) {
+
+    }
+
+    @Override
+    public void setUserId(String userId) {
 
     }
 
@@ -145,6 +121,11 @@ class NoOpPublicApi implements PublicApi {
 
     @Override
     public void setInstanceName(String instanceName) {
+
+    }
+
+    @Override
+    public void setErrorGroupCallback(ErrorGroupCallback errorGroupCallback) {
 
     }
 

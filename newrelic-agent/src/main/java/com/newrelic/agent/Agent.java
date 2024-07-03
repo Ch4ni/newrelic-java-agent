@@ -9,11 +9,13 @@ package com.newrelic.agent;
 
 import com.google.common.collect.ImmutableMap;
 import com.newrelic.agent.bridge.AgentBridge;
+import com.newrelic.agent.config.AgentConfig;
 import com.newrelic.agent.config.AgentJarHelper;
 import com.newrelic.agent.config.ConfigService;
 import com.newrelic.agent.config.ConfigServiceFactory;
 import com.newrelic.agent.config.JarResource;
 import com.newrelic.agent.config.JavaVersionUtils;
+import com.newrelic.agent.config.SecurityAgentConfig;
 import com.newrelic.agent.core.CoreService;
 import com.newrelic.agent.core.CoreServiceImpl;
 import com.newrelic.agent.logging.AgentLogManager;
@@ -23,8 +25,13 @@ import com.newrelic.agent.service.ServiceManager;
 import com.newrelic.agent.service.ServiceManagerImpl;
 import com.newrelic.agent.stats.StatsService;
 import com.newrelic.agent.stats.StatsWorks;
+import com.newrelic.agent.util.UnwindableInstrumentation;
+import com.newrelic.agent.util.UnwindableInstrumentationImpl;
 import com.newrelic.agent.util.asm.ClassStructure;
+import com.newrelic.api.agent.security.NewRelicSecurity;
+import com.newrelic.bootstrap.BootstrapAgent;
 import com.newrelic.bootstrap.BootstrapLoader;
+import com.newrelic.bootstrap.EmbeddedJarFilesImpl;
 import com.newrelic.weave.utils.Streams;
 import org.objectweb.asm.ClassReader;
 
@@ -47,6 +54,10 @@ import java.util.jar.JarOutputStream;
 import java.util.jar.Manifest;
 import java.util.logging.Level;
 import java.util.regex.Pattern;
+
+import static com.newrelic.agent.config.SecurityAgentConfig.isSecurityEnabled;
+import static com.newrelic.agent.config.SecurityAgentConfig.shouldInitializeSecurityAgent;
+import static com.newrelic.agent.config.SecurityAgentConfig.addSecurityAgentConfigSupportabilityMetrics;
 
 /**
  * New Relic Agent class. The premain you see here is but a fleeting shadow of the true premain. The real premain,
@@ -119,6 +130,7 @@ public final class Agent {
      */
     @SuppressWarnings("unused")
     public static void continuePremain(String agentArgs, Instrumentation inst, long startTime) {
+        inst = maybeWrapInstrumentation(inst);
         final LifecycleObserver lifecycleObserver = LifecycleObserver.createLifecycleObserver(agentArgs);
         if (!lifecycleObserver.isAgentSafe()) {
             return;
@@ -152,8 +164,9 @@ public final class Agent {
             return;
         }
 
+        ServiceManager serviceManager = null;
         try {
-            ServiceManager serviceManager = ServiceFactory.getServiceManager();
+            serviceManager = ServiceFactory.getServiceManager();
 
             // The following method will immediately configure the log so that the rest of our initialization sequence
             // is written to the newrelic_agent.log rather than to the console. Configuring the log also applies the
@@ -199,9 +212,75 @@ public final class Agent {
                 }
             }
             t.printStackTrace();
-            System.exit(1);
+
+            if (inst instanceof UnwindableInstrumentation) {
+                final UnwindableInstrumentation instrumentation = (UnwindableInstrumentation) inst;
+                if (serviceManager != null) {
+                    try {
+                        serviceManager.stop();
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }
+                LOG.severe("Detaching the New Relic agent");
+                instrumentation.unwind();
+                LOG.severe("The New Relic agent was detached");
+                return;
+            } else {
+                System.exit(1);
+            }
+        }
+        if (inst instanceof UnwindableInstrumentation) {
+            final UnwindableInstrumentation instrumentation = (UnwindableInstrumentation) inst;
+            instrumentation.started();
         }
         lifecycleObserver.agentStarted();
+        initialiseNewRelicSecurityIfAllowed(inst);
+    }
+
+    private static void initialiseNewRelicSecurityIfAllowed(Instrumentation inst) {
+        // Do not initialise New Relic Security module so that it stays in NoOp mode if force disabled.
+        addSecurityAgentConfigSupportabilityMetrics();
+        if (shouldInitializeSecurityAgent()) {
+            try {
+                LOG.log(Level.INFO, "Initializing New Relic Security module");
+                ServiceFactory.getServiceManager().getRPMServiceManager().addConnectionListener(new ConnectionListener() {
+                    @Override
+                    public void connected(IRPMService rpmService, AgentConfig agentConfig) {
+                        if (isSecurityEnabled()) {
+                            try {
+                                URL securityJarURL = EmbeddedJarFilesImpl.INSTANCE.getJarFileInAgent(BootstrapLoader.NEWRELIC_SECURITY_AGENT).toURI().toURL();
+                                LOG.log(Level.INFO, "Connected to New Relic. Starting New Relic Security module");
+                                NewRelicSecurity.getAgent().refreshState(securityJarURL, inst);
+                                NewRelicSecurity.markAgentAsInitialised();
+                            } catch (IOException e) {
+                                throw new RuntimeException(e);
+                            }
+                        } else {
+                            LOG.info("New Relic Security is disabled by one of the user provided config `security.enabled` or `high_security`.");
+                        }
+                    }
+
+                    @Override
+                    public void disconnected(IRPMService rpmService) {
+                        LOG.log(Level.INFO, "Deactivating New Relic Security module");
+                        NewRelicSecurity.getAgent().deactivateSecurity();
+                    }
+                });
+            } catch (Throwable t2) {
+                LOG.error("license_key is empty in the config. Not starting New Relic Security Agent.");
+            }
+        } else {
+            LOG.info("New Relic Security is completely disabled by one of the user provided config `security.enabled`, `security.agent.enabled` or `high_security`. Not loading security capabilities.");
+            SecurityAgentConfig.logSettings(Level.FINE);
+        }
+    }
+
+    private static Instrumentation maybeWrapInstrumentation(Instrumentation inst) {
+        if (System.getProperty(BootstrapAgent.NR_AGENT_ARGS_SYSTEM_PROPERTY) != null) {
+            return UnwindableInstrumentationImpl.wrapInstrumentation(inst);
+        }
+        return inst;
     }
 
     private static boolean tryToInitializeServiceManager(Instrumentation inst) {
@@ -223,6 +302,7 @@ public final class Agent {
 
             // Now that we know the agent is enabled, add the ApiClassTransformer
             BootstrapLoader.forceCorrectNewRelicApi(inst);
+            BootstrapLoader.forceCorrectNewRelicSecurityApi(inst);
 
             // init problem classes before class transformer service is active
             InitProblemClasses.loadInitialClasses();
@@ -302,7 +382,7 @@ public final class Agent {
             System.out.println("----------");
             System.out.println(JavaVersionUtils.getUnsupportedAgentJavaSpecVersionMessage(javaSpecVersion));
             System.out.println("Experimental runtime mode is enabled. Usage of the agent in this mode is for experimenting with early access" +
-                    " or upcoming Java releases or at your own risk.");
+                    " or upcoming Java releases at your own risk.");
             System.out.println("----------");
         }
         if (!JavaVersionUtils.isAgentSupportedJavaSpecVersion(javaSpecVersion) && !useExperimentalRuntime) {

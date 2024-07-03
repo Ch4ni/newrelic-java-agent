@@ -10,6 +10,7 @@ package com.newrelic.api.agent;
 import com.newrelic.agent.Agent;
 import com.newrelic.agent.MetricNames;
 import com.newrelic.agent.Transaction;
+import com.newrelic.agent.attributes.AgentAttributeSender;
 import com.newrelic.agent.attributes.AttributeSender;
 import com.newrelic.agent.attributes.CustomAttributeSender;
 import com.newrelic.agent.bridge.AgentBridge;
@@ -17,6 +18,7 @@ import com.newrelic.agent.bridge.PublicApi;
 import com.newrelic.agent.config.ConfigConstant;
 import com.newrelic.agent.config.ExpectedErrorConfig;
 import com.newrelic.agent.dispatchers.Dispatcher;
+import com.newrelic.agent.errors.ErrorGroupCallbackHolder;
 import com.newrelic.agent.service.ServiceFactory;
 import com.newrelic.agent.transaction.TransactionNamingPolicy;
 import org.apache.commons.lang3.StringUtils;
@@ -36,14 +38,17 @@ import java.util.logging.Level;
  * DO NOT INVOKE THIS CLASS DIRECTLY. Use {@link com.newrelic.api.agent.NewRelic}.
  */
 public class NewRelicApiImplementation implements PublicApi {
-    private final AttributeSender attributeSender;
+    private final AttributeSender customAttributeSender;
 
-    public NewRelicApiImplementation(AttributeSender sender) {
-        attributeSender = sender;
+    private final AgentAttributeSender agentAttributeSender;
+
+    public NewRelicApiImplementation(AttributeSender customSender, AgentAttributeSender agentSender) {
+        customAttributeSender = customSender;
+        agentAttributeSender = agentSender;
     }
 
     public NewRelicApiImplementation() {
-        this(new CustomAttributeSender());
+        this(new CustomAttributeSender(), new AgentAttributeSender());
     }
 
     // ************************** Error collector ***********************************//
@@ -71,45 +76,11 @@ public class NewRelicApiImplementation implements PublicApi {
     public void noticeError(Throwable throwable) {
         Map<String, String> params = Collections.emptyMap();
         noticeError(throwable, params, isExpectedErrorConfigured(throwable));
-
-    }
-
-    /**
-     * Notice an error and report it to New Relic. If this method is called within a transaction, the error message will
-     * be reported with the transaction when it finishes. If it is invoked outside of a transaction, a traced error will
-     * be created and reported to New Relic.
-     * Expecting Errors via configuration is not supported from the APIs that do not accept a Throwable as an attribute.
-     * To mark an Error that accepts a String as expected use the API that accepts a boolean.
-     * @param message the error message
-     * @param params  Custom parameters to include in the traced error. May be null. Map is copied to avoid side effects.
-     */
-    @Override
-    public void noticeError(String message, Map<String, ?> params) {
-        noticeError(message, params, false);
-    }
-
-    /**
-     * Report an error to New Relic.
-     * Expecting Errors via configuration is not supported from the APIs that do not accept a Throwable as an attribute.
-     * To mark an Error that accepts a String as expected use the API that accepts a boolean.
-     * @param message the error message
-     * @see #noticeError(String, Map)
-     */
-    @Override
-    public void noticeError(String message) {
-        Map<String, String> params = Collections.emptyMap();
-        noticeError(message, params, false);
-    }
-
-    @Override
-    public void noticeError(Throwable throwable, boolean expected) {
-        Map<String, String> params = Collections.emptyMap();
-        noticeError(throwable, params, expected);
     }
 
     public void noticeError(Throwable throwable, Map<String, ?> params, boolean expected) {
         try {
-            ServiceFactory.getRPMService().getErrorService().reportException(throwable, filterErrorAtts(params, attributeSender), expected);
+            ServiceFactory.getRPMService().getErrorService().reportException(throwable, filterErrorAtts(params, customAttributeSender), expected);
 
             MetricNames.recordApiSupportabilityMetric(MetricNames.SUPPORTABILITY_API_NOTICE_ERROR);
             //SUPPORTABILITY_API_EXPECTED_ERROR_API_THROWABLE metric is intended to be recorded independent of whether
@@ -132,7 +103,7 @@ public class NewRelicApiImplementation implements PublicApi {
     @Override
     public void noticeError(String message, Map<String, ?> params, boolean expected) {
         try {
-            ServiceFactory.getRPMService().getErrorService().reportError(message, filterErrorAtts(params, attributeSender), expected);
+            ServiceFactory.getRPMService().getErrorService().reportError(message, filterErrorAtts(params, customAttributeSender), expected);
 
             MetricNames.recordApiSupportabilityMetric(MetricNames.SUPPORTABILITY_API_NOTICE_ERROR);
             if (expected) {
@@ -147,12 +118,6 @@ public class NewRelicApiImplementation implements PublicApi {
             String msg = MessageFormat.format("Exception reporting exception \"{0}\": {1}", message, t);
             logException(msg, t);
         }
-    }
-
-    @Override
-    public void noticeError(String message, boolean expected) {
-        Map<String, String> params = Collections.emptyMap();
-        noticeError(message, params, expected);
     }
 
     private boolean isExpectedErrorConfigured(Throwable throwable) {
@@ -250,7 +215,7 @@ public class NewRelicApiImplementation implements PublicApi {
      */
     @Override
     public void addCustomParameter(String key, String value) {
-        attributeSender.addAttribute(key, value, "addCustomParameter");
+        customAttributeSender.addAttribute(key, value, "addCustomParameter");
     }
 
     /**
@@ -261,7 +226,7 @@ public class NewRelicApiImplementation implements PublicApi {
      */
     @Override
     public void addCustomParameter(String key, Number value) {
-        attributeSender.addAttribute(key, value, "addCustomParameter");
+        customAttributeSender.addAttribute(key, value, "addCustomParameter");
     }
 
     /**
@@ -272,7 +237,7 @@ public class NewRelicApiImplementation implements PublicApi {
      */
     @Override
     public void addCustomParameter(String key, boolean value) {
-        attributeSender.addAttribute(key, value, "addCustomParameter");
+        customAttributeSender.addAttribute(key, value, "addCustomParameter");
     }
 
     /**
@@ -282,7 +247,30 @@ public class NewRelicApiImplementation implements PublicApi {
      */
     @Override
     public void addCustomParameters(Map<String, Object> params) {
-        attributeSender.addAttributes(params, "addCustomParameters");
+        customAttributeSender.addAttributes(params, "addCustomParameters");
+    }
+
+    /**
+     * Sets the user ID for the current transaction by adding the "enduser.id" agent attribute. It is reported in errors and transaction traces.
+     * When high security mode is enabled, this method call will do nothing.
+     *
+     * @param userId The user ID to report. If it is a null or blank String, the "enduser.id" agent attribute will not be included in the current transaction and any associated errors.
+     */
+    @Override
+    public void setUserId(String userId) {
+        MetricNames.recordApiSupportabilityMetric(MetricNames.SUPPORTABILITY_API_SET_USER_ID);
+        if (ServiceFactory.getConfigService().getDefaultAgentConfig().isHighSecurity()) {
+            return;
+        }
+        final String attributeKey = "enduser.id";
+        final String methodCalled = "setUserId";
+        // Ignore null and empty strings
+        if (userId == null || userId.trim().isEmpty()) {
+            Agent.LOG.log(Level.FINER, "Will not include the {0} attribute because {1} was invoked with a null or blank value", attributeKey, methodCalled);
+            agentAttributeSender.removeAttribute(attributeKey);
+            return;
+        }
+        agentAttributeSender.addAttribute(attributeKey, userId, methodCalled);
     }
 
     /**
@@ -452,26 +440,7 @@ public class NewRelicApiImplementation implements PublicApi {
      * @see com.newrelic.agent.tracers.jasper.GeneratorVisitTracerFactory
      */
     public static String getBrowserTimingFooterForContentType(String contentType) {
-        Transaction tx = Transaction.getTransaction(false);
-        try {
-            if (tx == null) {
-                Agent.LOG.finer("Unable to inject browser timing footer in a JSP: not running in a transaction");
-                return "";
-            }
-            String footer = null;
-            synchronized (tx) {
-                footer = tx.getBrowserTransactionState().getBrowserTimingFooter();
-            }
-            if (Agent.LOG.isLoggable(Level.FINER)) {
-                String msg = MessageFormat.format("Injecting browser timing footer in a JSP: {0}", footer);
-                Agent.LOG.log(Level.FINER, msg);
-            }
-            return footer;
-        } catch (Throwable t) {
-            String msg = MessageFormat.format("Error injecting browser timing footer in a JSP: {0}", t);
-            logException(msg, t);
-            return "";
-        }
+        return "";
     }
 
     @Override
@@ -481,37 +450,18 @@ public class NewRelicApiImplementation implements PublicApi {
 
     @Override
     public String getBrowserTimingFooter(String nonce) {
-        Transaction tx = Transaction.getTransaction(false);
-        try {
-            if (tx == null) {
-                Agent.LOG.finer("Unable to get browser timing footer in NewRelic API: not running in a transaction");
-                return "";
-            }
-            String footer = null;
-            synchronized (tx) {
-                if (nonce == null) {
-                    footer = tx.getBrowserTransactionState().getBrowserTimingFooter();
-                } else {
-                    footer = tx.getBrowserTransactionState().getBrowserTimingFooter(nonce);
-                }
-            }
-            if (Agent.LOG.isLoggable(Level.FINER)) {
-                String msg = MessageFormat.format("Got browser timing footer in NewRelic API: {0}", footer);
-                Agent.LOG.log(Level.FINER, msg);
-            }
-            return footer;
-        } catch (Throwable t) {
-            String msg = MessageFormat.format("Error getting browser timing footer in NewRelic API: {0}", t);
-            logException(msg, t);
-            return "";
-        }
+        return "";
     }
 
     /**
      * Set the user name to associate with the RUM JavaScript footer for the current web transaction.
+     * If high security mode is enabled, this method call does nothing.
      */
     @Override
     public void setUserName(String name) {
+        if (ServiceFactory.getConfigService().getDefaultAgentConfig().isHighSecurity()) {
+            return;
+        }
         Transaction tx = Transaction.getTransaction(false);
         if (tx == null) {
             return;
@@ -530,7 +480,7 @@ public class NewRelicApiImplementation implements PublicApi {
             Agent.LOG.finer(msg);
         }
         MetricNames.recordApiSupportabilityMetric(MetricNames.SUPPORTABILITY_API_SET_USER_NAME);
-        attributeSender.addAttribute("user", name, "setUserName");
+        customAttributeSender.addAttribute("user", name, "setUserName");
     }
 
     /**
@@ -553,7 +503,7 @@ public class NewRelicApiImplementation implements PublicApi {
                 String msg = MessageFormat.format("Attempting to set account name to \"{0}\" in NewRelic API", name);
                 Agent.LOG.finer(msg);
             }
-            attributeSender.addAttribute("account", name, "setAccountName");
+            customAttributeSender.addAttribute("account", name, "setAccountName");
             MetricNames.recordApiSupportabilityMetric(MetricNames.SUPPORTABILITY_API_SET_ACCOUNT_NAME);
         }
     }
@@ -579,7 +529,7 @@ public class NewRelicApiImplementation implements PublicApi {
                 Agent.LOG.finer(msg);
             }
             MetricNames.recordApiSupportabilityMetric(MetricNames.SUPPORTABILITY_API_SET_PRODUCT_NAME);
-            attributeSender.addAttribute("product", name, "setProductName");
+            customAttributeSender.addAttribute("product", name, "setProductName");
         }
     }
 
@@ -599,6 +549,11 @@ public class NewRelicApiImplementation implements PublicApi {
     public void setInstanceName(String instanceName) {
         ServiceFactory.getEnvironmentService().getEnvironment().setInstanceName(instanceName);
         MetricNames.recordApiSupportabilityMetric(MetricNames.SUPPORTABILITY_API_SET_INSTANCE_NAME);
+    }
+
+    @Override
+    public void setErrorGroupCallback(ErrorGroupCallback errorGroupCallback) {
+        ErrorGroupCallbackHolder.setErrorGroupCallback(errorGroupCallback);
     }
 
     private static void logException(String msg, Throwable t) {

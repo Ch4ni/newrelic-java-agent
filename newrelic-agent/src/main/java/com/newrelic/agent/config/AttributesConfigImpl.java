@@ -8,7 +8,7 @@
 package com.newrelic.agent.config;
 
 import com.newrelic.agent.Agent;
-import com.newrelic.agent.attributes.AttributeNames;
+import com.newrelic.agent.bridge.AgentBridge;
 
 import java.text.MessageFormat;
 import java.util.ArrayList;
@@ -18,35 +18,6 @@ import java.util.Map;
 import java.util.logging.Level;
 
 public class AttributesConfigImpl extends BaseConfig implements AttributesConfig {
-
-    public static final String[] DEFAULT_BROWSER_EXCLUDES = new String[] {
-            AttributeNames.DISPLAY_HOST,
-            AttributeNames.HTTP_REQUEST_STAR,
-            AttributeNames.INSTANCE_NAME,
-            AttributeNames.JVM_STAR,
-            AttributeNames.MESSAGE_REQUEST_STAR,
-            AttributeNames.REQUEST_REFERER_PARAMETER_NAME,
-            AttributeNames.REQUEST_ACCEPT_PARAMETER_NAME,
-            AttributeNames.REQUEST_HOST_PARAMETER_NAME,
-            AttributeNames.REQUEST_USER_AGENT_PARAMETER_NAME,
-            AttributeNames.REQUEST_METHOD_PARAMETER_NAME,
-            AttributeNames.REQUEST_CONTENT_LENGTH_PARAMETER_NAME,
-            AttributeNames.RESPONSE_CONTENT_TYPE_PARAMETER_NAME,
-            AttributeNames.SOLR_STAR,
-    };
-
-    public static final String[] DEFAULT_TRANSACTION_EVENTS_EXCLUDES = new String[] {
-            AttributeNames.HTTP_REQUEST_STAR,
-            AttributeNames.JVM_STAR,
-            AttributeNames.MESSAGE_REQUEST_STAR,
-            AttributeNames.SOLR_STAR
-    };
-
-    // request parameters and message parameters are turned off by default - this is done in attributes filter
-    public static final String[] DEFAULT_ERROR_EVENTS_EXCLUDES = new String[] {};
-    public static final String[] DEFAULT_TRANSACTION_TRACES_EXCLUDES = new String[] {};
-    public static final String[] DEFAULT_TRANSACTION_SEGMENTS_EXCLUDES = new String[] {};
-    public static final String[] DEFAULT_SPAN_EVENTS_EXCLUDES = new String[] {};
 
     private static final boolean DEFAULT_ENABLED = true;
     private static final String SYSTEM_PROPERTY_ROOT = "newrelic.config.attributes.";
@@ -58,15 +29,38 @@ public class AttributesConfigImpl extends BaseConfig implements AttributesConfig
     public static final String ATTS_EXCLUDE = "attributes.exclude";
     public static final String ATTS_INCLUDE = "attributes.include";
 
+    private static final String HTTP_ATTR_MODE = "http_attribute_mode";
+    private static final String HTTP_ATTR_MODE_LEGACY = "legacy";
+    private static final String HTTP_ATTR_MODE_STANDARD = "standard";
+    private static final String HTTP_ATTR_MODE_BOTH = "both";
+
     private final boolean enabledRoot;
     private final List<String> attributesInclude;
     private final List<String> attributeExclude;
+    private final boolean legacyHttpAttr;
+    private final boolean standardHttpAttr;
 
     public AttributesConfigImpl(Map<String, Object> pProps) {
         super(pProps, SYSTEM_PROPERTY_ROOT);
         enabledRoot = initEnabled();
         attributesInclude = initAttributesInclude();
         attributeExclude = initAttributesExclude();
+        String httpAttributeMode = getProperty(HTTP_ATTR_MODE);
+
+        boolean standardMode = HTTP_ATTR_MODE_STANDARD.equalsIgnoreCase(httpAttributeMode);
+        boolean legacyMode = HTTP_ATTR_MODE_LEGACY.equalsIgnoreCase(httpAttributeMode);
+
+        // legacy is only disabled when mode is standard
+        legacyHttpAttr = !standardMode;
+        // standard is only disabled when mode is legacy
+        standardHttpAttr = !legacyMode;
+
+        // logging invalid http attr mode
+        if (httpAttributeMode != null && !legacyMode && !standardMode &&
+                !HTTP_ATTR_MODE_BOTH.equalsIgnoreCase(httpAttributeMode)) {
+            AgentBridge.getAgent().getLogger().log(Level.WARNING, "Invalid " + HTTP_ATTR_MODE + " config" +
+                    " encountered: " + httpAttributeMode + ". Using default :" + HTTP_ATTR_MODE_BOTH + ".");
+        }
     }
 
     private boolean initEnabled() {
@@ -102,10 +96,6 @@ public class AttributesConfigImpl extends BaseConfig implements AttributesConfig
             return false;
         }
 
-        if (dest.equals(AgentConfigImpl.ATTRIBUTES)) {
-            return enabledRoot;
-        }
-
         boolean toEnable = false;
         Boolean destEnabled;
         for (String current : dest) {
@@ -121,6 +111,16 @@ public class AttributesConfigImpl extends BaseConfig implements AttributesConfig
 
         // the root property is not used unless it is false
         return (toEnable || defaultProp);
+    }
+
+    @Override
+    public boolean isLegacyHttpAttr() {
+        return legacyHttpAttr;
+    }
+
+    @Override
+    public boolean isStandardHttpAttr() {
+        return standardHttpAttr;
     }
 
     private static Boolean getBooleanValue(AgentConfig config, String value) {

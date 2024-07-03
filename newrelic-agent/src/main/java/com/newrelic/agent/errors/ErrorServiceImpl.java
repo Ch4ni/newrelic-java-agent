@@ -330,6 +330,7 @@ public class ErrorServiceImpl extends AbstractService implements ErrorService, H
         DistributedSamplingPriorityQueue<ErrorEvent> eventList = getReservoir(appName);
 
         ErrorEvent errorEvent = createErrorEvent(appName, error, transactionData, transactionStats);
+
         eventList.add(errorEvent);
 
         if (errorCount.get() >= ERROR_LIMIT_PER_REPORTING_PERIOD) {
@@ -464,6 +465,8 @@ public class ErrorServiceImpl extends AbstractService implements ErrorService, H
         DistributedTraceService distributedTraceService = ServiceFactory.getDistributedTraceService();
         DistributedTracingConfig distributedTracingConfig = ServiceFactory.getConfigService().getDefaultAgentConfig().getDistributedTracingConfig();
 
+        joinedIntrinsics.put("guid", td.getGuid());
+
         if (distributedTracingConfig.isEnabled()) {
             joinedIntrinsics.putAll(distributedTraceService.getIntrinsics(
                     td.getInboundDistributedTracePayload(), td.getGuid(), td.getTraceId(), td.getTransportType(),
@@ -482,6 +485,7 @@ public class ErrorServiceImpl extends AbstractService implements ErrorService, H
                     .errorAttributes(td.getErrorAttributes())
                     .intrinsicAttributes(joinedIntrinsics)
                     .expected(markedExpected)
+                    .transactionGuid(td.getGuid())
                     .build();
         } else {
             error = HttpTracedError
@@ -495,6 +499,7 @@ public class ErrorServiceImpl extends AbstractService implements ErrorService, H
                     .errorAttributes(td.getErrorAttributes())
                     .intrinsicAttributes(joinedIntrinsics)
                     .expected(markedExpected)
+                    .transactionGuid(td.getGuid())
                     .build();
         }
         return error;
@@ -677,6 +682,7 @@ public class ErrorServiceImpl extends AbstractService implements ErrorService, H
                     .statusCodeAndMessage(statusCode, message)
                     .requestUri(uri)
                     .build();
+
             reportError(error);
             Agent.LOG.finer(MessageFormat.format("Reported HTTP error {0} with status code {1} URI {2}", message, statusCode, uri));
         } else {

@@ -8,7 +8,6 @@
 package com.newrelic.agent.tracing;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.newrelic.agent.*;
 import com.newrelic.agent.attributes.AttributesService;
 import com.newrelic.agent.attributes.CrossAgentInput;
@@ -97,14 +96,14 @@ public class W3CTraceContextCrossAgentTest {
         serviceManager = new MockServiceManager();
         ServiceFactory.setServiceManager(serviceManager);
 
-        Map<String, Object> config = Maps.newHashMap();
+        Map<String, Object> config = new HashMap<>();
         config.put(AgentConfigImpl.APP_NAME, APP_NAME);
 
-        Map<String, Object> dtConfig = Maps.newHashMap();
+        Map<String, Object> dtConfig = new HashMap<>();
         dtConfig.put("enabled", true);
         dtConfig.put("exclude_newrelic_header", true);
         config.put("distributed_tracing", dtConfig);
-        Map<String, Object> spanConfig = Maps.newHashMap();
+        Map<String, Object> spanConfig = new HashMap<>();
         spanConfig.put("collect_span_events", true);
         config.put("span_events", spanConfig);
 
@@ -194,7 +193,7 @@ public class W3CTraceContextCrossAgentTest {
                 intrinsics == null ? Collections.<String, Object>emptyMap() : (Map<String, Object>) intrinsics.get("Transaction");
         Map<String, Object> spanAssertions = intrinsics == null ? Collections.<String, Object>emptyMap() : (Map<String, Object>) intrinsics.get("Span");
 
-        Map<String, Object> connectInfo = Maps.newHashMap();
+        Map<String, Object> connectInfo = new HashMap<>();
         connectInfo.put(DistributedTracingConfig.ACCOUNT_ID, accountId);
         connectInfo.put(DistributedTracingConfig.TRUSTED_ACCOUNT_KEY, accountKey);
         connectInfo.put(DistributedTracingConfig.PRIMARY_APPLICATION_ID, "2827902");
@@ -301,15 +300,15 @@ public class W3CTraceContextCrossAgentTest {
     }
 
     private void replaceConfig(boolean spanEventsEnabled) {
-        Map<String, Object> config = Maps.newHashMap();
+        Map<String, Object> config = new HashMap<>();
         config.put(AgentConfigImpl.APP_NAME, APP_NAME);
 
-        Map<String, Object> dtConfig = Maps.newHashMap();
+        Map<String, Object> dtConfig = new HashMap<>();
         dtConfig.put("enabled", true);
         dtConfig.put("exclude_newrelic_header", true);
         config.put("distributed_tracing", dtConfig);
 
-        Map<String, Object> spansConfig = Maps.newHashMap();
+        Map<String, Object> spansConfig = new HashMap<>();
         spansConfig.put("enabled", spanEventsEnabled);
         spansConfig.put("collect_span_events", true);
         config.put("span_events", spansConfig);
@@ -326,7 +325,9 @@ public class W3CTraceContextCrossAgentTest {
         JSONObject exact = (JSONObject) payloadAssertions.get("exact");
 
         if (exact != null) {
-            assertEquals(exact.get("traceparent.version"), payload.getVersion());
+            if (exact.get("traceparent.version") != null) {
+                assertEquals(exact.get("traceparent.version"), payload.getVersion());
+            }
             if (exact.containsKey("traceparent.trace_id")) {
                 assertEquals(exact.get("traceparent.trace_id"), payload.getTraceId());
             }
@@ -363,10 +364,10 @@ public class W3CTraceContextCrossAgentTest {
                 assertEquals(exact.get("tracestate.tenant_id"), payload.getTrustKey());
             }
             if (exact.containsKey("tracestate.version")) {
-                assertEquals(((Long) exact.get("tracestate.version")).intValue(), payload.getVersion());
+                assertEquals(exact.get("tracestate.version"), String.valueOf(payload.getVersion()));
             }
             if (exact.containsKey("tracestate.parent_type")) {
-                assertEquals(((Long) exact.get("tracestate.parent_type")).intValue(), payload.getParentType().value);
+                assertEquals(exact.get("tracestate.parent_type"), String.valueOf(payload.getParentType().value));
             }
             if (exact.containsKey("tracestate.parent_account_id")) {
                 assertEquals(exact.get("tracestate.parent_account_id"), payload.getAccountId());
@@ -375,10 +376,11 @@ public class W3CTraceContextCrossAgentTest {
                 assertEquals(exact.get("tracestate.parent_application_id"), payload.getApplicationId());
             }
             if (exact.containsKey("tracestate.sampled")) {
-                assertEquals(exact.get("tracestate.sampled"), payload.getSampled().booleanValue());
+                boolean expectedTracestateSampled = exact.get("tracestate.sampled").equals("1");
+                assertEquals(expectedTracestateSampled, payload.getSampled().booleanValue());
             }
             if (exact.containsKey("tracestate.priority")) {
-                assertEquals((double) exact.get("tracestate.priority"), (double) payload.getPriority(), 0.00001);
+                assertEquals(Double.parseDouble(((String) exact.get("tracestate.priority"))), (double) payload.getPriority(), 0.00001);
             }
         }
 
@@ -472,8 +474,9 @@ public class W3CTraceContextCrossAgentTest {
                 }
             } else if (event.getKey().startsWith("unexpected")) {
                 for (Object val : (JSONArray) event.getValue()) {
-                    final String message = "Did not expect: " + val.toString();
-                    assertFalse(message, intrinsics.containsKey(val.toString()));
+                    String valString = val.toString();
+                    final String message = "Did not expect: " + valString;
+                    assertFalse(message, (intrinsics.containsKey(valString) && !intrinsics.get(valString).toString().isEmpty()));
                 }
             }
         }

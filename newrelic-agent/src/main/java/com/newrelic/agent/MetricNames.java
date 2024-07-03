@@ -359,6 +359,7 @@ public class MetricNames {
     public static final String SUPPORTABILITY_API_SET_SERVER_INFO = "SetServerInfo";
     public static final String SUPPORTABILITY_API_SET_USER_NAME = "SetUserName";
     public static final String SUPPORTABILITY_API_SET_ACCOUNT_NAME = "SetAccountName";
+    public static final String SUPPORTABILITY_API_SET_USER_ID = "SetUserId";
 
     //Transaction supportability metrics
     public static final String SUPPORTABILITY_TRANSACTION_STARTED = "Supportability/Transaction/StartedCount";
@@ -380,6 +381,7 @@ public class MetricNames {
     public static final String SUPPORTABILITY_ASYNC_API_LEGACY_RESUME = "Supportability/API/LegacyAsync/Resume";
     public static final String SUPPORTABILITY_ASYNC_API_LEGACY_COMPLETE = "Supportability/API/LegacyAsync/Complete";
     public static final String SUPPORTABILITY_ASYNC_API_LEGACY_ERROR = "Supportability/API/LegacyAsync/Error";
+    public static final String SUPPORTABILITY_ASYNC_API_LEGACY_SKIP_SUSPEND = "Supportability/API/LegacyAsync/SkipSuspend";
 
     //This times the transform method in InstrumentationContextmanager to indicate classloading overhead
     public static final String SUPPORTABILITY_CLASSLOADER_TRANSFORM_TIME = "Supportability/Classloader/TransformTime";
@@ -487,6 +489,17 @@ public class MetricNames {
     public static final String SUPPORTABILITY_JFR_SERVICE_STARTED_SUCCESS = "Supportability/JfrService/Started/Success";
     public static final String SUPPORTABILITY_JFR_SERVICE_STOPPED_SUCCESS = "Supportability/JfrService/Stopped/Success";
     public static final String SUPPORTABILITY_JFR_SERVICE_STARTED_FAIL = "Supportability/JfrService/Started/Fail";
+
+    // Error Grouping
+    public static final String SUPPORTABILITY_ERROR_GROUPING_CALLBACK_ENABLED = "Supportability/ErrorGrouping/Callback/enabled";
+    public static final String SUPPORTABILITY_ERROR_GROUPING_CALLBACK_EXECUTION_TIME = "Supportability/ErrorGrouping/Callback/ExecutionTime";
+
+    // Slow transaction detection
+    public static final String SUPPORTABILITY_SLOW_TXN_DETECTION_ENABLED = "Supportability/SlowTransactionDetection/enabled";
+    public static final String SUPPORTABILITY_SLOW_TXN_DETECTION_DISABLED = "Supportability/SlowTransactionDetection/disabled";
+
+    // AiMonitoring Callback Set
+    public static final String SUPPORTABILITY_AI_MONITORING_TOKEN_COUNT_CALLBACK_SET = "Supportability/AiMonitoringTokenCountCallback/Set";
 
     /**
      * Utility method for adding supportability metrics to APIs

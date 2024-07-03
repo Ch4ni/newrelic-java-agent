@@ -1,8 +1,10 @@
 plugins {
     id 'com.github.prokod.gradle-crossbuild' version '0.14.1' apply false
-    id "org.jetbrains.kotlin.jvm" version "1.6.20" apply false
+    id "org.jetbrains.kotlin.jvm" version "1.8.21" apply false
     id "com.newrelic.gradle-verify-instrumentation-plugin" version "4.0" apply false
     id "com.newrelic.gradle-compatibility-doc-plugin" version "1.1" apply false
+    id "com.github.spotbugs" version "5.0.14" apply false
+
 }
 
 allprojects {
@@ -19,6 +21,7 @@ allprojects {
 
     group = 'com.newrelic.agent.java'
     version = agentVersion + (project.findProperty("release") == "true" ? "" : "-SNAPSHOT")
+    version = version + (project.findProperty("release-suffix") != null ? project.findProperty("release-suffix") : "")
 
     idea.module {
         outputDir file('build/classes/main')
@@ -46,7 +49,6 @@ subprojects {
     repositories {
         mavenLocal()
         mavenCentral()
-        jcenter()
     }
 
     def isJavaProject = ![
@@ -72,5 +74,5 @@ ext {
     // SynchronizedAnnotationNode, SynchronizedClassNode, SynchronizedFieldNode, SynchronizedInnerClassNode, SynchronizedMethodNode,
     // SynchronizedModuleExportNode, SynchronizedModuleNode, SynchronizedModuleOpenNode, SynchronizedModuleProvideNode, SynchronizedModuleRequireNode,
     // SynchronizedTypeAnnotationNode
-    asmVersion=9.3
+    asmVersion="9.6"
 }

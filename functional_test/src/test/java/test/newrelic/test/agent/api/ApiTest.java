@@ -83,6 +83,8 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /* (non-javadoc)
  * Note: the "beacon" was a predecessor technology for correlated transaction traces with the browser.
@@ -91,7 +93,8 @@ import java.util.Map;
 
 public class ApiTest implements TransactionListener {
     ApiTestHelper apiTestHelper = new ApiTestHelper();
-    private static final String CONFIG_FILE = "configs/cross_app_tracing_test.yml";
+    private static final String CAT_CONFIG_FILE = "configs/cross_app_tracing_test.yml";
+    private static final String HIGH_SECURITY_CONFIG_FILE = "configs/high_security_config.yml";
     private static final ClassLoader CLASS_LOADER = ApiTest.class.getClassLoader();
 
     @Before
@@ -114,8 +117,8 @@ public class ApiTest implements TransactionListener {
         ServiceFactory.getTransactionService().addTransactionListener(this);
     }
 
-    public EnvironmentHolder setupEnvironmentHolder(String environment) throws Exception {
-        EnvironmentHolderSettingsGenerator envHolderSettings = new EnvironmentHolderSettingsGenerator(CONFIG_FILE, environment, CLASS_LOADER);
+    public EnvironmentHolder setupEnvironmentHolder(String configFile, String environment) throws Exception {
+        EnvironmentHolderSettingsGenerator envHolderSettings = new EnvironmentHolderSettingsGenerator(configFile, environment, CLASS_LOADER);
         EnvironmentHolder environmentHolder = new EnvironmentHolder(envHolderSettings);
         environmentHolder.setupEnvironment();
         return environmentHolder;
@@ -385,7 +388,7 @@ public class ApiTest implements TransactionListener {
     }
 
     @Test
-    public void testSetTransactionNameAfterGetBrowserInstrumentationFooter() throws Exception {
+    public void testSetTransactionNameAfterGetBrowserInstrumentationScript() throws Exception {
 
         ApiTestHelper.mockOutServiceManager();
 
@@ -396,7 +399,6 @@ public class ApiTest implements TransactionListener {
         NewRelic.setTransactionName("Test", "/foo1");
 
         NewRelic.getBrowserTimingHeader();
-        NewRelic.getBrowserTimingFooter(); // lock the name
 
         NewRelic.setTransactionName("Test", "/foo2");
 
@@ -781,6 +783,47 @@ public class ApiTest implements TransactionListener {
     private void runTestAddCustomBoolParameter() {
         NewRelic.addCustomParameter("bool", true);
         Assert.assertEquals(true, Transaction.getTransaction().getUserAttributes().get("bool"));
+    }
+
+
+    @Test
+    public void testSetUserId() throws Exception {
+        EnvironmentHolder holder = setupEnvironmentHolder(HIGH_SECURITY_CONFIG_FILE, "high_security_disabled_test");
+        try {
+            runTestSetUserId();
+        } finally {
+            Transaction.clearTransaction();
+            holder.close();
+        }
+    }
+
+
+    @Trace(dispatcher = true)
+    private void runTestSetUserId() {
+        NewRelic.setUserId("hello");
+        Assert.assertEquals("hello", Transaction.getTransaction().getAgentAttributes().get("enduser.id"));
+        NewRelic.setUserId("");
+        Assert.assertFalse("Agent attributes shouldn't have user ID", Transaction.getTransaction().getAgentAttributes().containsKey("enduser.id"));
+        NewRelic.setUserId(null);
+        Assert.assertFalse("Agent attributes shouldn't have user ID", Transaction.getTransaction().getAgentAttributes().containsKey("enduser.id"));
+    }
+
+    @Test
+    public void testSetUserIdWithHighSecurity() throws Exception {
+        EnvironmentHolder holder = setupEnvironmentHolder(HIGH_SECURITY_CONFIG_FILE, "high_security_enabled_test");
+        try {
+            runTestSetUserId();
+        } finally {
+            Transaction.clearTransaction();
+            holder.close();
+        }
+    }
+
+
+    @Trace(dispatcher = true)
+    private void runTestSetUserWithHighSecurity() {
+        NewRelic.setUserId("hello");
+        Assert.assertFalse("Agent attributes shouldn't have user ID", Transaction.getTransaction().getAgentAttributes().containsKey("enduser.id"));
     }
 
     @Test
@@ -1287,7 +1330,13 @@ public class ApiTest implements TransactionListener {
         tx.getTransactionActivity().tracerStarted(tracer);
 
         String browserTimingHeader = NewRelic.getBrowserTimingHeader();
-        Assert.assertEquals("Incorrect header", ApiTestHelper.HEADER, browserTimingHeader);
+
+        // The only thing that can vary in the returned script is the "applicationTime" property, so we remove it
+        Pattern p = Pattern.compile("\"applicationTime\":([0-9]*)");
+        browserTimingHeader = browserTimingHeader.replaceFirst("\"applicationTime\":([0-9]*)", "");
+
+
+        Assert.assertEquals("Incorrect header", ApiTestHelper.JAVASCRIPT_AGENT_SCRIPT, browserTimingHeader);
         tx.getTransactionActivity().tracerFinished(tracer, 0);
     }
 
@@ -1295,7 +1344,7 @@ public class ApiTest implements TransactionListener {
     public void testGetBrowserTimingHeaderWhenRUMEnabledNotSpecified() throws Exception {
 
         Map<String, Object> connectionResponse = new HashMap<>();
-        connectionResponse.put(ApiTestHelper.BROWSER_KEY, "3969ca217b");
+        connectionResponse.put(ApiTestHelper.BROWSER_KEY, "abcd");
         connectionResponse.put(ApiTestHelper.BROWSER_LOADER_VERSION, "248");
         connectionResponse.put(ApiTestHelper.JS_AGENT_LOADER, ApiTestHelper.LOADER);
         connectionResponse.put(ApiTestHelper.JS_AGENT_FILE, "js-agent.newrelic.com\nr-248.min.js");
@@ -1313,7 +1362,12 @@ public class ApiTest implements TransactionListener {
         tx.getTransactionActivity().tracerStarted(tracer);
 
         String browserTimingHeader = NewRelic.getBrowserTimingHeader();
-        Assert.assertEquals("Incorrect header", ApiTestHelper.HEADER, browserTimingHeader);
+
+        // The only thing that can vary in the returned script is the "applicationTime" property, so we remove it
+        Pattern p = Pattern.compile("\"applicationTime\":([0-9]*)");
+        browserTimingHeader = browserTimingHeader.replaceFirst("\"applicationTime\":([0-9]*)", "");
+
+        Assert.assertEquals("Incorrect header", ApiTestHelper.JAVASCRIPT_AGENT_SCRIPT, browserTimingHeader);
         tx.getTransactionActivity().tracerFinished(tracer, 0);
 
     }
@@ -1383,33 +1437,7 @@ public class ApiTest implements TransactionListener {
         String browserTimingHeader = NewRelic.getBrowserTimingHeader();
         Assert.assertEquals("Outside of a transaction, the timing header should be empty", "", browserTimingHeader);
     }
-
-    @Test
-    public void testGetBrowserTimingFooterNoTransaction() {
-
-        String browserTimingFooter = NewRelic.getBrowserTimingFooter();
-        Assert.assertEquals("Outside of a transaction, the timing footer should be empty", "", browserTimingFooter);
-    }
-
-    @Test
-    public void testGetBrowserTimingFooter() throws Exception {
-
-        ApiTestHelper.mockOutServiceManager();
-        Transaction tx = Transaction.getTransaction();
-        TransactionNamePriority expectedPriority = TransactionNamePriority.FILTER_NAME;
-        PriorityTransactionName ptn = PriorityTransactionName.create("name", null, expectedPriority);
-        tx.setPriorityTransactionName(ptn);
-        BasicRequestRootTracer tracer = createDispatcherTracer();
-        tx.getTransactionActivity().tracerStarted(tracer);
-
-        NewRelic.getBrowserTimingHeader();
-
-        String browserTimingFooter = NewRelic.getBrowserTimingFooter();
-        Assert.assertTrue("Incorrect footer.  Was " + browserTimingFooter + ", but expected it to start with "
-                + getTimingFooterStart(), browserTimingFooter.startsWith(getTimingFooterStart()));
-        tx.getTransactionActivity().tracerFinished(tracer, 0);
-    }
-
+    
     @Test
     public void testRUMWithNoBeacon() throws Exception {
 
@@ -1486,49 +1514,6 @@ public class ApiTest implements TransactionListener {
     }
 
     @Test
-    public void testGetBrowserTimingFooterWhenComponentBasedTransactionNamingDisabled() throws Exception {
-
-        Map<String, Object> connectionResponse = new HashMap<>();
-        connectionResponse.put(ApiTestHelper.BROWSER_KEY, "3969ca217b");
-        connectionResponse.put(ApiTestHelper.BROWSER_LOADER_VERSION, "248");
-        connectionResponse.put(ApiTestHelper.JS_AGENT_LOADER, ApiTestHelper.LOADER);
-        connectionResponse.put(ApiTestHelper.JS_AGENT_FILE, "js-agent.newrelic.com/r-248.min.js");
-        connectionResponse.put(ApiTestHelper.BEACON, "staging-beacon-2.newrelic.com");
-        connectionResponse.put(ApiTestHelper.ERROR_BEACON, "staging-jserror.newrelic.com");
-        connectionResponse.put(ApiTestHelper.APPLICATION_ID, 100L);
-
-        ApiTestHelper.mockOutServiceManager(connectionResponse);
-
-        Transaction tx = Transaction.getTransaction();
-
-        BasicRequestRootTracer tracer = createDispatcherTracer();
-        tx.getTransactionActivity().tracerStarted(tracer);
-
-        NewRelic.getBrowserTimingHeader();
-        String browserTimingFooter = NewRelic.getBrowserTimingFooter();
-        System.out.println(browserTimingFooter);
-        List<String> matched = new ArrayList<>(15);
-        BrowserConfigTest.checkFooter(browserTimingFooter, matched);
-
-        String expectedObfuscatedName = Obfuscator.obfuscateNameUsingKey(
-                tx.getPriorityTransactionName().getName(),
-                NewRelic.getAgent().getConfig().getValue("license_key", "").substring(0, 13));
-
-        List<String> expectedFooterProperties = Arrays.asList(
-                "\"beacon\":\"staging-beacon-2.newrelic.com\"",
-                "\"queueTime\":[0-9]+",
-                "\"licenseKey\":\"3969ca217b\"",
-                "\"transactionName\":\"" + expectedObfuscatedName + "\"",
-                "\"errorBeacon\":\"staging-jserror.newrelic.com\"",
-                "\"agent\":\"js-agent.newrelic.com\\\\/r-248.min.js\"",
-                "\"applicationTime\":[0-9]+",
-                "\"applicationID\":\"100\"");
-        BrowserConfigTest.checkStrings(browserTimingFooter, expectedFooterProperties, matched);
-        tx.getTransactionActivity().tracerFinished(tracer, 0);
-
-    }
-
-    @Test
     public void testGetBrowserTimingFooterWhenRUMDisabled() throws Exception {
         Map<String, Object> connectionResponse = new HashMap<>();
 
@@ -1542,30 +1527,6 @@ public class ApiTest implements TransactionListener {
         NewRelic.getBrowserTimingHeader();
         String browserTimingFooter = NewRelic.getBrowserTimingFooter();
         Assert.assertEquals("Incorrect header", "", browserTimingFooter);
-        tx.getTransactionActivity().tracerFinished(tracer, 0);
-    }
-
-    @Test
-    public void testGetBrowserTimingFooterWhenRUMEnabledNotSpecified() throws Exception {
-        Map<String, Object> connectionResponse = new HashMap<>();
-        connectionResponse.put(ApiTestHelper.BROWSER_KEY, "3969ca217b");
-        connectionResponse.put(ApiTestHelper.BROWSER_LOADER_VERSION, "248");
-        connectionResponse.put(ApiTestHelper.JS_AGENT_LOADER, ApiTestHelper.LOADER);
-        connectionResponse.put(ApiTestHelper.JS_AGENT_FILE, "js-agent.newrelic.com\nr-248.min.js");
-        connectionResponse.put(ApiTestHelper.BEACON, "staging-beacon-2.newrelic.com");
-        connectionResponse.put(ApiTestHelper.ERROR_BEACON, "staging-jserror.newrelic.com");
-        connectionResponse.put(ApiTestHelper.APPLICATION_ID, 100L);
-        ApiTestHelper.mockOutServiceManager(connectionResponse);
-
-        Transaction tx = Transaction.getTransaction();
-
-        BasicRequestRootTracer tracer = createDispatcherTracer();
-        tx.getTransactionActivity().tracerStarted(tracer);
-
-        NewRelic.getBrowserTimingHeader();
-        String browserTimingFooter = NewRelic.getBrowserTimingFooter();
-        Assert.assertTrue("Incorrect footer.  Was " + browserTimingFooter + " expected to start with "
-                + getTimingFooterStart(), browserTimingFooter.startsWith(getTimingFooterStart()));
         tx.getTransactionActivity().tracerFinished(tracer, 0);
     }
 
@@ -1617,27 +1578,9 @@ public class ApiTest implements TransactionListener {
 
     @Test
     public void testGetBrowserTimingFooterRUM4() throws Exception {
-        Map<String, Object> connectionResponse = new HashMap<>();
-        connectionResponse.put(ApiTestHelper.BROWSER_KEY, "3969ca217b");
-        connectionResponse.put(ApiTestHelper.BROWSER_LOADER_VERSION, "248");
-        connectionResponse.put(ApiTestHelper.JS_AGENT_LOADER, ApiTestHelper.LOADER);
-        connectionResponse.put(ApiTestHelper.JS_AGENT_FILE, "js-agent.newrelic.com\nr-248.min.js");
-        connectionResponse.put(ApiTestHelper.BEACON, "staging-beacon-2.newrelic.com");
-        connectionResponse.put(ApiTestHelper.ERROR_BEACON, "staging-jserror.newrelic.com");
-        connectionResponse.put(ApiTestHelper.APPLICATION_ID, 100L);
-
-        ApiTestHelper.mockOutServiceManager(connectionResponse);
-
-        Transaction tx = Transaction.getTransaction();
-        BasicRequestRootTracer tracer = createDispatcherTracer();
-        tx.getTransactionActivity().tracerStarted(tracer);
-
-        NewRelic.getBrowserTimingHeader();
-        String browserTimingFooter = NewRelic.getBrowserTimingFooter();
-        Assert.assertTrue("Incorrect footer.  Was " + browserTimingFooter + " expected to start with "
-                + getTimingFooterStart(), browserTimingFooter.startsWith(getTimingFooterStart()));
-        tx.getTransactionActivity().tracerFinished(tracer, 0);
-
+        // The getBrowserTimingFooter API is deprecated and now only returns an empty String
+        Assert.assertEquals("", NewRelic.getBrowserTimingFooter());
+        Assert.assertEquals("", NewRelic.getBrowserTimingFooter("123"));
     }
 
     private String getTimingFooterStart() {
@@ -1882,7 +1825,7 @@ public class ApiTest implements TransactionListener {
     @Test
     public void testExternalCatAPI() throws Exception {
         // override default agent config to disabled distributed tracing and use CAT instead
-        EnvironmentHolder holder = setupEnvironmentHolder("cat_enabled_dt_disabled_test");
+        EnvironmentHolder holder = setupEnvironmentHolder(CAT_CONFIG_FILE, "cat_enabled_dt_disabled_test");
         TestServer server = new TestServer(8088);
 
         try {
@@ -2046,7 +1989,7 @@ public class ApiTest implements TransactionListener {
     @Test
     public void testMessagingAPI() throws Exception {
         // override default agent config to disabled distributed tracing and use CAT instead
-        EnvironmentHolder holder = setupEnvironmentHolder("cat_enabled_dt_disabled_test");
+        EnvironmentHolder holder = setupEnvironmentHolder(CAT_CONFIG_FILE, "cat_enabled_dt_disabled_test");
         MessagingTestServer server = new MessagingTestServer(8088);
 
         try {

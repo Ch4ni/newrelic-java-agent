@@ -1,4 +1,13 @@
-^com/newrelic/(weave|agent/deps|agent/tracers|org/apache)/.*
+^com/newrelic/(weave|agent/deps|agent/tracers|org/apache|agent/security)/.*
+^com/nr/(instrumentation|agent)/security/.*
+^java/io/(BufferedOutputStream|ByteArrayOutputStream|DataOutputStream|FilterOutputStream|ObjectOutputStream|PipedOutputStream)
+^java/lang/(NullOutputStream|ProcessPipeOutputStream)
+^java/net/SocketOutputStream
+# To resolve class circularity error
+^javax/crypto/BadPaddingException
+^javax/crypto/SecretKey
+# Remove ThreadLocal Weak Random Class Instrumentation
+^java/util/concurrent/ThreadLocalRandom
 ^(org/objectweb/asm/|javax/xml/|org/apache/juli/)(.*)
 # Don't instrument agent threads
 ^com/newrelic/agent/.*AgentThread.*
@@ -53,10 +62,6 @@
 # adding exclusions for obfuscated jar - see ticket 197106
 ^asposewobfuscated/.*
 ^com/aspose/words/.*
-# saxon xlst classes - see ticket 195949
-^net/sf/saxon.*
-# exclude java.security and sun.reflect classes from transformation
-^java/security/.*
 ^sun/reflect/.*
 # exclude lambdas by excluding java.lang.invoke.* classes
 ^java/lang/invoke/.*
@@ -81,3 +86,19 @@
 # These duplicate kafka serialize/deserialize metrics
 ^org/apache/kafka/common/serialization/ExtendedSerializer\$Wrapper.*
 ^org/apache/kafka/common/serialization/ExtendedDeserializer\$Wrapper.*
+# exclusions for Open Liberty 21+ so transactions start properly
+^com/ibm/ws/security/jaspi/JaspiServletFilter
+# Websphere specific servlet wrapper class
+^com/ibm/ws/webcontainer/servlet/ServletWrapperImpl
+# Sonarqube9.9 ClassCircularityErrors 
+^java/util/AbstractList\$RandomAccessSpliterator
+^java/util/stream/MatchOps\$MatchOp
+^java/util/stream/MatchOps\$BooleanTerminalSink
+^javax/security/auth/Subject\$SecureSet\$1
+### All default excludes listed below get ignored when the security agent is enabled
+# exclude java.security and sun.reflect classes from transformation
+^java/security/.*
+# crypto classes can cause class circularity errors if they get too far along in the class transformer
+^javax/crypto/.*
+# saxon xlst classes - see ticket 195949
+^net/sf/saxon.*

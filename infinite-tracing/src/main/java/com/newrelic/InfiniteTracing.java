@@ -48,6 +48,10 @@ public class InfiniteTracing implements Consumer<SpanEvent> {
      */
     public void start(String agentRunToken, Map<String, String> requestMetadata) {
         synchronized (lock) {
+            // Record supportability metrics related to Infinite Tracing configuration settings
+            aggregator.incrementCounter("Supportability/InfiniteTracing/gRPC/Compression/" + (config.getUseCompression() ? "enabled" : "disabled"));
+            aggregator.incrementCounter("Supportability/InfiniteTracing/gRPC/Batching/" + (config.getUseBatching() ? "enabled" : "disabled"));
+
             if (spanEventSenderFuture != null) {
                 channelManager.updateMetadata(agentRunToken, requestMetadata);
                 channelManager.shutdownChannelAndBackoff(0);
@@ -115,11 +119,11 @@ public class InfiniteTracing implements Consumer<SpanEvent> {
         return new InfiniteTracing(config, aggregator, executorService, new LinkedBlockingDeque<SpanEvent>(config.getMaxQueueSize()));
     }
 
-    private static class DaemonThreadFactory implements ThreadFactory {
+    static class DaemonThreadFactory implements ThreadFactory {
         private final String serviceName;
         private final AtomicInteger counter = new AtomicInteger(0);
 
-        private DaemonThreadFactory(String serviceName) {
+        DaemonThreadFactory(String serviceName) {
             this.serviceName = serviceName;
         }
 

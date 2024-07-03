@@ -7,6 +7,8 @@
 
 package com.newrelic.agent;
 
+import com.newrelic.agent.aimonitoring.AiMonitoringImpl;
+import com.newrelic.agent.bridge.AgentBridge;
 import com.newrelic.agent.bridge.NoOpMetricAggregator;
 import com.newrelic.agent.bridge.NoOpTracedMethod;
 import com.newrelic.agent.bridge.NoOpTransaction;
@@ -14,6 +16,8 @@ import com.newrelic.agent.bridge.TracedMethod;
 import com.newrelic.agent.bridge.Transaction;
 import com.newrelic.agent.service.ServiceFactory;
 import com.newrelic.agent.tracers.Tracer;
+import com.newrelic.api.agent.AiMonitoring;
+import com.newrelic.api.agent.ErrorApi;
 import com.newrelic.api.agent.Insights;
 import com.newrelic.api.agent.Logger;
 import com.newrelic.api.agent.Logs;
@@ -21,6 +25,7 @@ import com.newrelic.api.agent.MetricAggregator;
 import com.newrelic.api.agent.TraceMetadata;
 
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 
 public class AgentImpl implements com.newrelic.agent.bridge.Agent {
@@ -105,6 +110,11 @@ public class AgentImpl implements com.newrelic.agent.bridge.Agent {
     }
 
     @Override
+    public ErrorApi getErrorApi() {
+        return AgentBridge.publicApi;
+    }
+
+    @Override
     public com.newrelic.api.agent.Config getConfig() {
         return ServiceFactory.getConfigService().getDefaultAgentConfig();
     }
@@ -130,8 +140,24 @@ public class AgentImpl implements com.newrelic.agent.bridge.Agent {
     }
 
     @Override
+    public AiMonitoring getAiMonitoring() {
+        return new AiMonitoringImpl();
+    }
+
+    @Override
     public Logs getLogSender() {
         return ServiceFactory.getServiceManager().getLogSenderService();
+    }
+
+    @Override
+    public String getEntityGuid(boolean wait) {
+        final RPMServiceManager rpmServiceManager = ServiceFactory.getServiceManager().getRPMServiceManager();
+        final IRPMService rpmService = rpmServiceManager.getRPMService();
+        if (wait && !rpmService.isConnected()) {
+            logger.log(Level.FINE, "Connecting");
+            ServiceFactory.getRPMConnectionService().awaitConnectImmediate(rpmServiceManager, 1, TimeUnit.MINUTES);
+        }
+        return rpmService.getEntityGuid();
     }
 
     @Override
@@ -151,7 +177,11 @@ public class AgentImpl implements com.newrelic.agent.bridge.Agent {
 
     @Override
     public Map<String, String> getLinkingMetadata() {
-        return AgentLinkingMetadata.getLinkingMetadata(getTraceMetadata(), ServiceFactory.getConfigService(), ServiceFactory.getRPMService());
+        return AgentLinkingMetadata.getLinkingMetadata(
+                getTraceMetadata(),
+                ServiceFactory.getConfigService(),
+                ServiceFactory.getRPMServiceManager() != null ? ServiceFactory.getRPMServiceManager().getRPMService() : null
+        );
     }
 
 }

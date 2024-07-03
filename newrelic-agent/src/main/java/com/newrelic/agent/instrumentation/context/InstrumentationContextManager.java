@@ -31,7 +31,6 @@ import org.objectweb.asm.ClassVisitor;
 
 import java.lang.instrument.ClassFileTransformer;
 import java.lang.instrument.Instrumentation;
-import java.text.MessageFormat;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -147,7 +146,6 @@ public class InstrumentationContextManager {
         }
 
         classloaderExclusions = agentConfig.getClassTransformerConfig().getClassloaderExclusions();
-        matchVisitors.put(ServiceFactory.getJarCollectorService().getSourceVisitor(), NO_OP_TRANSFORMER);
         matchVisitors.put(ServiceFactory.getSourceLanguageService().getSourceVisitor(), NO_OP_TRANSFORMER);
 
         try {
@@ -171,8 +169,9 @@ public class InstrumentationContextManager {
 
         final TraceClassTransformer traceTransformer = new TraceClassTransformer();
         manager.classWeaverService.registerInstrumentation();
-        manager.addContextClassTransformer(manager.classWeaverService, manager.classWeaverService);
         AgentConfig agentConfig = ServiceFactory.getConfigService().getDefaultAgentConfig();
+        manager.classWeaverService.registerSecurityInstrumentation();
+        manager.addContextClassTransformer(manager.classWeaverService, manager.classWeaverService);
         final boolean defaultMethodTracingEnabled = agentConfig.getClassTransformerConfig()
                 .isDefaultMethodTracingEnabled();
 
@@ -218,11 +217,6 @@ public class InstrumentationContextManager {
         }
         if (isClassloaderExcluded(classloader)) {
             Agent.LOG.log(Level.FINEST, "Skipping transform of {0}. Classloader {1} is excluded.", internalClassName, classloader);
-            return false;
-        }
-        if (internalClassName.startsWith("javax/crypto/")) {
-            // crypto classes can cause class circularity errors if they get too far along in the class transformer
-            Agent.LOG.finest(MessageFormat.format("Instrumentation skipped by ''javax crypto'' rule: {0}", internalClassName));
             return false;
         }
         if (classNameFilter.isIncluded(internalClassName)) {

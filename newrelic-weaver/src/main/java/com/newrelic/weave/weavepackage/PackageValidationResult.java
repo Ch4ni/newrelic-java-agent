@@ -13,6 +13,7 @@ import com.newrelic.weave.ClassWeave;
 import com.newrelic.weave.MethodProcessors;
 import com.newrelic.weave.PreparedExtension;
 import com.newrelic.weave.PreparedMatch;
+import com.newrelic.weave.WeaveViolationFilter;
 import com.newrelic.weave.utils.ClassCache;
 import com.newrelic.weave.utils.ClassInformation;
 import com.newrelic.weave.utils.SynchronizedClassNode;
@@ -32,6 +33,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -47,6 +49,7 @@ import java.util.regex.Pattern;
  */
 public class PackageValidationResult {
     private static final Pattern WEAVE_PACKAGE_PATTERN = Pattern.compile("^com.newrelic.weave..*");
+    public static final Comparator<PackageValidationResult> CONFIG_COMPARATOR = Comparator.comparing(PackageValidationResult::weavePackageConfig);
     private final Queue<WeaveViolation> violations = Queues.newConcurrentLinkedQueue();
     private final Map<String, ClassNode> utilClasses = new ConcurrentHashMap<>();
     private final Map<String, ClassNode> allAnnotationClasses = new ConcurrentHashMap<>();
@@ -55,6 +58,7 @@ public class PackageValidationResult {
     private final Map<String, PreparedMatch> exactMatches = new ConcurrentHashMap<>();
     private final Map<String, PreparedMatch> baseMatches = new ConcurrentHashMap<>();
     private final WeavePackage weavePackage;
+    private final WeaveViolationFilter weaveViolationFilter;
 
     private ClassNode errorHandler;
 
@@ -74,6 +78,7 @@ public class PackageValidationResult {
         this.allAnnotationClasses.putAll(allAnnotationClasses);
         this.baseAnnotationClasses.putAll(baseAnnotationClasses);
         this.allMethodAnnotationClasses.putAll(allMethodAnnotationClasses);
+        this.weaveViolationFilter = this.weavePackage.getConfig().getWeaveViolationFilter();
 
         this.skipIfPresent(skipIfPresentNames, cache);
 
@@ -111,6 +116,7 @@ public class PackageValidationResult {
     public PackageValidationResult(WeavePackage weavePackage, ClassCache cache, Set<String> requiredClasses,
             Set<String> illegalClasses) {
         this.weavePackage = weavePackage;
+        this.weaveViolationFilter = this.weavePackage.getConfig().getWeaveViolationFilter();
         for (String requiredClass : requiredClasses) {
             if (!cache.hasClassResource(requiredClass)) {
                 violations.add(new WeaveViolation(WeaveViolationType.MISSING_ORIGINAL_BYTECODE, requiredClass));
@@ -133,6 +139,7 @@ public class PackageValidationResult {
      */
     PackageValidationResult(WeavePackage weavePackage, Queue<WeaveViolation> packageViolations) {
         this.weavePackage = weavePackage;
+        this.weaveViolationFilter = this.weavePackage.getConfig().getWeaveViolationFilter();
         this.violations.addAll(packageViolations);
     }
 
@@ -184,7 +191,7 @@ public class PackageValidationResult {
         }
     }
 
-    private void buildResults(ClassCache classCache, ClassNode originalClassNode, String weaveClassName,
+    private boolean buildResults(ClassCache classCache, ClassNode originalClassNode, String weaveClassName,
             ClassNode weaveNode, Map<String, PreparedMatch> results, boolean isBaseMatch,
             Set<String> requiredClassAnnotations, Set<String> requiredMethodAnnotations, ClassNode errorHandler,
             Map<String, byte[]> annotationProxyClasses) throws IOException {
@@ -195,7 +202,6 @@ public class PackageValidationResult {
         // exit sooner to prevent further processing (avoids NPE when no default constructor exists)
         if (match.isFatalWeaveViolation()) {
             violations.addAll(match.getViolations());
-            return;
         }
 
         PreparedMatch prepared = PreparedMatch.prepare(match, errorHandler,
@@ -219,7 +225,11 @@ public class PackageValidationResult {
             annotationProxyClasses.put(annotationProxyClass.getKey(),
                     WeaveUtils.convertToClassBytes(annotationProxyClass.getValue(), classCache));
         }
-        violations.addAll(match.getViolations());
+
+        violations.addAll((this.weaveViolationFilter == null ? match.getViolations() : this.weaveViolationFilter.filterViolationCollection(match.getViolations())));
+
+        //Return true if this match had violations, even if they were filtered out of the PackageValidationResult violation list
+        return match.getViolations().size() > 0;
     }
 
     /**
@@ -454,12 +464,12 @@ public class PackageValidationResult {
         try {
             boolean isInterfaceMatch = WeaveUtils.isWeaveWithAnnotationInterfaceMatch(weaveNode);
             Map<String, PreparedMatch> results = new HashMap<>();
-            buildResults(cache, targetNode, weaveNode.name, weaveNode, results, isInterfaceMatch,
+            boolean targetNodeContainsViolations = buildResults(cache, targetNode, weaveNode.name, weaveNode, results, isInterfaceMatch,
                     weavePackage.getRequiredAnnotationClassesForAnnotationWeave(weaveNode.name),
                     weavePackage.getRequiredAnnotationClassesForMethodAnnotationWeave(weaveNode.name),
                     errorHandler, annotationProxyClasses);
 
-            if (!violations.isEmpty()) {
+            if (targetNodeContainsViolations) {
                 return composite;
             }
 
@@ -568,5 +578,9 @@ public class PackageValidationResult {
      */
     public WeavePackage getWeavePackage() {
         return this.weavePackage;
+    }
+
+    private static WeavePackageConfig weavePackageConfig(PackageValidationResult p) {
+        return p.getWeavePackage().getConfig();
     }
 }

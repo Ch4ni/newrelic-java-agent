@@ -17,10 +17,12 @@ import org.json.simple.JSONStreamAware;
 
 import java.io.IOException;
 import java.io.Writer;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public abstract class TracedError implements Comparable<TracedError>, JSONStreamAware {
@@ -38,6 +40,8 @@ public abstract class TracedError implements Comparable<TracedError>, JSONStream
     final TransactionData transactionData;
     final boolean expected; // reported as expected error by API call
 
+    final String transactionGuid;
+
     public abstract static class Builder {
         protected final ErrorCollectorConfig errorCollectorConfig;
         protected final String appName;
@@ -51,7 +55,10 @@ public abstract class TracedError implements Comparable<TracedError>, JSONStream
         protected Map<String, Object> agentAttributes = Collections.emptyMap();
         protected Map<String, ?> errorAttributes = Collections.emptyMap();
         protected Map<String, Object> intrinsicAttributes = Collections.emptyMap();
+
         protected boolean expected;
+
+        protected String transactionGuid;
 
         Builder(ErrorCollectorConfig errorCollectorConfig, String appName, String frontendMetricName, long timestampInMillis) {
             this.errorCollectorConfig = errorCollectorConfig;
@@ -100,13 +107,18 @@ public abstract class TracedError implements Comparable<TracedError>, JSONStream
             return this;
         }
 
+        public Builder transactionGuid(String transactionGuid) {
+            this.transactionGuid = transactionGuid;
+            return this;
+        }
+
         public abstract TracedError build();
     }
 
     protected TracedError(ErrorCollectorConfig errorCollectorConfig, String appName, String frontendMetricName,
             long timestampInMillis, String requestUri, Map<String, Map<String, String>> prefixedParams,
             Map<String, ?> userParams, Map<String, ?> agentParams, Map<String, ?> errorParams,
-            Map<String, ?> intrinsics, TransactionData transactionData, boolean expected) {
+            Map<String, ?> intrinsics, TransactionData transactionData, boolean expected, String transactionGuid) {
         this.errorCollectorConfig = errorCollectorConfig;
         this.appName = appName;
         this.path = frontendMetricName == null ? "Unknown" : frontendMetricName;
@@ -119,6 +131,7 @@ public abstract class TracedError implements Comparable<TracedError>, JSONStream
         this.intrinsics = setAtts(intrinsics);
         this.transactionData = transactionData;
         this.expected = expected;
+        this.transactionGuid = transactionGuid;
     }
 
     private <K, V> Map<K, V> setAtts(Map<K, V> inputAtts) {
@@ -167,7 +180,7 @@ public abstract class TracedError implements Comparable<TracedError>, JSONStream
         return atts;
     }
 
-    private Map<String, Object> getAgentAtts() {
+    public Map<String, Object> getAgentAtts() {
         Map<String, Object> atts = new HashMap<>();
         atts.putAll(agentAtts);
         if (prefixAtts != null && !prefixAtts.isEmpty()) {
@@ -224,7 +237,13 @@ public abstract class TracedError implements Comparable<TracedError>, JSONStream
 
     @Override
     public void writeJSONString(Writer writer) throws IOException {
-        JSONArray.writeJSONString(Arrays.asList(getTimestampInMillis(), getPath(), getMessage(), getExceptionClass(), getAttributes()), writer);
+        // Wrapped in an ArrayList since Arrays.asList() returns an immutable list
+        List<Object> elements = new ArrayList<>(Arrays.asList(getTimestampInMillis(), getPath(), getMessage(), getExceptionClass(), getAttributes()));
+        // Add the transaction guid to the trace, if applicable
+        if (transactionGuid != null) {
+            elements.add(this.transactionGuid);
+        }
+        JSONArray.writeJSONString(elements, writer);
     }
 
     @Override
@@ -233,5 +252,9 @@ public abstract class TracedError implements Comparable<TracedError>, JSONStream
     }
 
     public abstract boolean incrementsErrorMetric();
+
+    public boolean isExpected() {
+        return expected;
+    }
 
 }

@@ -7,21 +7,24 @@
 
 package com.newrelic.weave.weavepackage;
 
+import com.newrelic.weave.WeaveViolationFilter;
+import com.newrelic.weave.violation.WeaveViolationType;
+import org.objectweb.asm.tree.ClassNode;
+
 import java.io.IOException;
-import java.lang.NumberFormatException;
 import java.lang.instrument.Instrumentation;
 import java.net.URL;
+import java.util.EnumSet;
 import java.util.jar.Attributes;
 import java.util.jar.JarInputStream;
-import java.util.regex.Pattern;
 import java.util.regex.Matcher;
-
-import org.objectweb.asm.tree.ClassNode;
+import java.util.regex.Pattern;
 
 /**
  * Holds metadata and config options for a {@link WeavePackage}. Use {@link #builder()} to instantiate.
  */
-public class WeavePackageConfig {
+public class WeavePackageConfig implements Comparable<WeavePackageConfig>{
+
     /**
      * Creates a WeavePackageConfig using the builder pattern.
      */
@@ -35,7 +38,9 @@ public class WeavePackageConfig {
         private float version = 1.0f;
         private String source = null;
         private boolean enabled = true;
+        private long priority = 0L;
         private boolean custom = false;
+        private WeaveViolationFilter weaveViolationFilter = null;
         private ClassNode errorHandleClassNode = ErrorTrapHandler.NO_ERROR_TRAP_HANDLER;
         private WeavePreprocessor preprocessor = WeavePreprocessor.NO_PREPROCESSOR;
         private WeavePostprocessor postprocessor = WeavePostprocessor.NO_POSTPROCESSOR;
@@ -94,7 +99,7 @@ public class WeavePackageConfig {
         }
 
         /**
-         * Set the of the weave package.
+         * Set the version of the weave package.
          * 
          * @param version the version of the weave package
          * @return builder with updated state
@@ -129,9 +134,67 @@ public class WeavePackageConfig {
         }
 
         /**
-         * Set whether or not the package is "custom".
+         * Sets the priority of this package. The higher the priority, the earlier it will be weaved.<br/>
+         * A package that is weaved later wraps any instrumentation that was weaved earlier.<br/>
+         * <pre>
+         *     Priority -10 {
+         *         Priority 0 {
+         *             Priority 10 {
+         *                 Original code
+         *             }
+         *         }
+         *     }
          *
-         * @param custom whether or not the package is "custom"
+         * </pre>
+         * The default priority (and the most common for the agent instrumentation) is 0.<br/>
+         * So to have your code be wrapped by the agent instrumentation, set a positive priority.
+         * @param priority the priority of the instrumentation package
+         * @return builder with updated state
+         */
+        public Builder priority(long priority) {
+            this.priority = priority;
+            return this;
+        }
+
+        /**
+         * Using the supplied {@code violationFilterToken}, create a {@link WeaveViolationFilter} instance to be stored
+         * as part of the config.
+         * <p>
+         * The filter is configured by adding a manifest attribute of {@code Weave-Violation-Filter} with a value
+         * of {@link WeaveViolationType} strings, seperated by a comma. For example:
+         * <pre>
+         *     Weave-Violation-Filter: METHOD_MISSING_REQUIRED_ANNOTATIONS,CLASS_MISSING_REQUIRED_ANNOTATIONS
+         * </pre>
+         *
+         * Weave violations that match any of the configured types will be ignored and not added to the
+         * {@link PackageValidationResult}'s violation list. If no types are configured in the manifest,
+         * no filter will be created or applied.
+         *
+         * @param violationFilterToken the comma seperated String of WeaveViolationTypes to ignore
+         * @return builder with updated state
+         */
+        public Builder weaveViolationFilters(String violationFilterToken) {
+            if (violationFilterToken != null) {
+                String [] filterTokens = violationFilterToken.split(",");
+                EnumSet<WeaveViolationType> types = EnumSet.noneOf(WeaveViolationType.class);
+                for (String type : filterTokens) {
+                    try {
+                        types.add(WeaveViolationType.valueOf(type));
+                    } catch (IllegalArgumentException ignored) {}
+                }
+
+                if (types.size() > 0 ) {
+                    this.weaveViolationFilter = new WeaveViolationFilter(this.name, types);
+                }
+            }
+
+            return this;
+        }
+
+        /**
+         * Set whether the package is "custom".
+         *
+         * @param custom whether the package is "custom"
          * @return builder with updated state
          */
         public Builder custom(boolean custom) {
@@ -249,7 +312,13 @@ public class WeavePackageConfig {
                 enabled = Boolean.parseBoolean(enabledS);
             }
 
-            return this.name(name).alias(alias).vendorId(vendorId).version(version).enabled(enabled);
+            String priorityS = mainAttributes.getValue("Priority");
+            long priority = priorityS == null ? 0 : Long.parseLong(priorityS);
+
+            String violationFilterToken = mainAttributes.getValue("Weave-Violation-Filter");
+
+            return this.name(name).alias(alias).vendorId(vendorId).version(version).enabled(enabled).priority(priority)
+                    .weaveViolationFilters(violationFilterToken);
         }
 
         /**
@@ -262,8 +331,8 @@ public class WeavePackageConfig {
             if (null == name) {
                 throw new RuntimeException("WeavePackageConfig must have an Implementation-Name");
             }
-            return new WeavePackageConfig(name, alias, vendorId, version, enabled, source, custom, instrumentation,
-                    errorHandleClassNode, preprocessor, postprocessor, extensionClassTemplate);
+            return new WeavePackageConfig(name, alias, vendorId, version, enabled, priority, source, custom, instrumentation,
+                    errorHandleClassNode, preprocessor, postprocessor, extensionClassTemplate, weaveViolationFilter);
         }
     }
 
@@ -293,15 +362,19 @@ public class WeavePackageConfig {
     private final WeavePreprocessor preprocessor;
     private final WeavePostprocessor postprocessor;
     private final ClassNode extensionClassTemplate;
+    private final long priority;
+    private final WeaveViolationFilter weaveViolationFilter;
 
     private WeavePackageConfig(String name, String alias, String vendorId, float version, boolean enabled,
-            String source, boolean custom, Instrumentation instrumentation, ClassNode errorTrapClassNode,
-            WeavePreprocessor preprocessor, WeavePostprocessor postprocessor, ClassNode extensionClassTemplate) {
+            long priority, String source, boolean custom, Instrumentation instrumentation, ClassNode errorTrapClassNode,
+            WeavePreprocessor preprocessor, WeavePostprocessor postprocessor, ClassNode extensionClassTemplate,
+            WeaveViolationFilter weaveViolationFilter) {
         this.name = name;
         this.alias = alias;
         this.vendorId = vendorId;
         this.version = version;
         this.enabled = enabled;
+        this.priority = priority;
         this.source = source;
         this.custom = custom;
 
@@ -310,6 +383,7 @@ public class WeavePackageConfig {
         this.preprocessor = preprocessor;
         this.postprocessor = postprocessor;
         this.extensionClassTemplate = extensionClassTemplate;
+        this.weaveViolationFilter = weaveViolationFilter;
     }
 
     /**
@@ -357,10 +431,24 @@ public class WeavePackageConfig {
     }
 
     /**
+     * The priority of this package.
+     */
+    public long getPriority() {
+        return priority;
+    }
+
+    /**
      * Whether or not the {@link WeavePackage} is "custom", i.e. loaded by the agent from the /extensions directory.
      */
     public boolean isCustom() {
         return custom;
+    }
+
+    /**
+     * The {@link WeaveViolationFilter} instance, if violations to filter are configured in the module manifest; null otherwise
+     */
+    public WeaveViolationFilter getWeaveViolationFilter() {
+        return this.weaveViolationFilter;
     }
 
     /**
@@ -403,6 +491,26 @@ public class WeavePackageConfig {
 
     @Override
     public String toString() {
-        return "WeavePackageConfig [name=" + name + ", version=" + version + ", enabled=" + enabled + "]";
+        return "WeavePackageConfig [name=" + name + ", version=" + version + ", enabled=" + enabled + ", priority=" + priority + "]";
+    }
+
+
+    @Override
+    public int compareTo(WeavePackageConfig that) {
+        // higher priority should come first
+        if (this.priority != that.priority) {
+            return (this.priority > that.priority ? -1 : 1);
+        }
+
+        if (this.name == null && that.name == null) {
+            return 0;
+        } else if (this.name == null) {
+            return -1;
+        } else if (that.name == null) {
+            return 1;
+        } else {
+            // reverse sorting for name
+            return that.name.compareTo(this.name);
+        }
     }
 }

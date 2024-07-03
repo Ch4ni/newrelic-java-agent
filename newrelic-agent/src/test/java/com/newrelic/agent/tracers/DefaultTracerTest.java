@@ -61,12 +61,14 @@ import com.newrelic.api.agent.HeaderType;
 import com.newrelic.api.agent.HttpParameters;
 import com.newrelic.api.agent.NewRelic;
 import com.newrelic.api.agent.OutboundHeaders;
+import com.newrelic.test.marker.RequiresFork;
 import org.json.simple.JSONArray;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.objectweb.asm.Opcodes;
 
 import java.net.InetAddress;
@@ -82,6 +84,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 
+@Category(RequiresFork.class)
 public class DefaultTracerTest {
 
     private String APP_NAME;
@@ -415,6 +418,15 @@ public class DefaultTracerTest {
 
     @Test
     public void testTokenRefToken() throws URISyntaxException {
+        testTokenRefRoken(false);
+    }
+
+    @Test
+    public void testTokenRefTokenSql() throws URISyntaxException {
+        testTokenRefRoken(true);
+    }
+
+    private void testTokenRefRoken(boolean isSqlTracer) throws URISyntaxException {
         TransactionActivity.clear();
         Transaction.clearTransaction();
         Transaction tx = Transaction.getTransaction();
@@ -431,8 +443,48 @@ public class DefaultTracerTest {
         final AgentBridge.TokenAndRefCount tokenAndRefCount = new AgentBridge.TokenAndRefCount(token, root, new AtomicInteger(1));
         AgentBridge.activeToken.set(tokenAndRefCount);
 
-        DefaultTracer tracer = (DefaultTracer) AgentBridge.instrumentation.createTracer(null, 0, "iamyourchild",
-                DefaultTracer.DEFAULT_TRACER_FLAGS);
+        DefaultTracer tracer = (DefaultTracer)
+                (isSqlTracer ?
+                    AgentBridge.instrumentation.createSqlTracer(null, 0,
+                            "iamyourchild", DefaultTracer.DEFAULT_TRACER_FLAGS) :
+                    AgentBridge.instrumentation.createTracer(null, 0,
+                            "iamyourchild", DefaultTracer.DEFAULT_TRACER_FLAGS));
+
+        Assert.assertNotNull(tracer);
+
+        root.finish(0, null);
+        assertClmAbsent(root);
+        assertClmAbsent(tracer);
+    }
+
+    @Test
+    public void testCreateTracerNoToken() {
+        testCreateTracerNoToken(false);
+    }
+
+    @Test
+    public void testCreateSqlTracerNoToken() {
+        testCreateTracerNoToken(true);
+    }
+
+    public void testCreateTracerNoToken(boolean isSqlTracer) {
+        TransactionActivity.clear();
+        Transaction.clearTransaction();
+        Transaction tx = Transaction.getTransaction();
+        TransactionActivity txa = TransactionActivity.get();
+        Tracer root = new OtherRootTracer(tx, new ClassMethodSignature("com.newrelic.agent.TracedActivityTest",
+                "makeTransaction", "()V"), null, DefaultTracer.NULL_METRIC_NAME_FORMATTER);
+        txa.tracerStarted(root);
+
+        TransactionActivity.clear();
+        Transaction.clearTransaction();
+
+        DefaultTracer tracer = (DefaultTracer)
+                (isSqlTracer ?
+                        AgentBridge.instrumentation.createSqlTracer(null, 0,
+                                "iamyourchild", DefaultTracer.DEFAULT_TRACER_FLAGS | TracerFlags.DISPATCHER) :
+                        AgentBridge.instrumentation.createTracer(null, 0,
+                                "iamyourchild", DefaultTracer.DEFAULT_TRACER_FLAGS | TracerFlags.DISPATCHER));
 
         Assert.assertNotNull(tracer);
 
@@ -668,10 +720,10 @@ public class DefaultTracerTest {
         assertNotNull(spanEvent);
 
         assertNull(spanEvent.getParentId());
-        assertEquals("YourSQL", spanEvent.getIntrinsics().get("component"));
-        assertEquals("databaseServer", spanEvent.getIntrinsics().get("peer.hostname"));
-        assertEquals("dbName", spanEvent.getIntrinsics().get("db.instance"));
-        assertEquals("databaseServer:1234", spanEvent.getIntrinsics().get("peer.address"));
+        assertEquals("YourSQL", spanEvent.getAgentAttributes().get("db.system"));
+        assertEquals("databaseServer", spanEvent.getAgentAttributes().get("peer.hostname"));
+        assertEquals("dbName", spanEvent.getAgentAttributes().get("db.instance"));
+        assertEquals("databaseServer:1234", spanEvent.getAgentAttributes().get("peer.address"));
         assertEquals("client", spanEvent.getIntrinsics().get("span.kind"));
         assertClmAbsent(spanEvent);
     }
@@ -811,10 +863,10 @@ public class DefaultTracerTest {
         assertEquals(rootSpan.getGuid(), siblingSpan.getParentId());
         assertNull(siblingSpan.getIntrinsics().get("nr.entryPoint"));
 
-        assertEquals("YourSQL", child2Span.getIntrinsics().get("component"));
-        assertEquals("databaseServer", child2Span.getIntrinsics().get("peer.hostname"));
-        assertEquals("dbName", child2Span.getIntrinsics().get("db.instance"));
-        assertEquals("databaseServer:1234", child2Span.getIntrinsics().get("peer.address"));
+        assertEquals("YourSQL", child2Span.getAgentAttributes().get("db.system"));
+        assertEquals("databaseServer", child2Span.getAgentAttributes().get("peer.hostname"));
+        assertEquals("dbName", child2Span.getAgentAttributes().get("db.instance"));
+        assertEquals("databaseServer:1234", child2Span.getAgentAttributes().get("peer.address"));
         assertEquals("client", child2Span.getIntrinsics().get("span.kind"));
 
         assertEquals("library", siblingSpan.getIntrinsics().get("component"));

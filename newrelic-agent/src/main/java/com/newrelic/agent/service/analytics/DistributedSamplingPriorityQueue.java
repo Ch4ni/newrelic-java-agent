@@ -12,6 +12,7 @@ import com.google.common.collect.Queues;
 import com.newrelic.agent.interfaces.SamplingPriorityQueue;
 import com.newrelic.agent.model.PriorityAware;
 import com.newrelic.agent.tracing.DistributedTraceUtil;
+import com.newrelic.agent.util.NoOpQueue;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -55,12 +56,7 @@ public class DistributedSamplingPriorityQueue<E extends PriorityAware> implement
     public DistributedSamplingPriorityQueue(String appName, String serviceName, int reservoirSize, int decidedLast, int target, Comparator<E> comparator) {
         this.appName = appName;
         this.serviceName = serviceName;
-        this.comparator = comparator == null ? new Comparator<E>() {
-            @Override
-            public int compare(E left, E right) {
-                return Float.compare(right.getPriority(), left.getPriority());
-            }
-        } : comparator;
+        this.comparator = comparator == null ? (left, right) -> Float.compare(right.getPriority(), left.getPriority()) : comparator;
         this.data = createQueue(reservoirSize, this.comparator);
         this.recorded = new AtomicInteger(0);
         this.decidedLast = decidedLast;
@@ -188,108 +184,4 @@ public class DistributedSamplingPriorityQueue<E extends PriorityAware> implement
         data.clear();
     }
 
-    private static final class NoOpQueue<E extends PriorityAware> implements Queue<E> {
-        @Override
-        public boolean add(E e) {
-            return false;
-        }
-
-        @Override
-        public boolean offer(E e) {
-            return false;
-        }
-
-        @Override
-        public E remove() {
-            return null;
-        }
-
-        @Override
-        public E poll() {
-            return null;
-        }
-
-        @Override
-        public E element() {
-            return null;
-        }
-
-        @Override
-        public E peek() {
-            return null;
-        }
-
-        @Override
-        public int size() {
-            return 0;
-        }
-
-        @Override
-        public boolean isEmpty() {
-            return true;
-        }
-
-        @Override
-        public boolean contains(Object o) {
-            return false;
-        }
-
-        @Override
-        public Iterator<E> iterator() {
-            return new Iterator<E>() {
-                @Override
-                public boolean hasNext() {
-                    return false;
-                }
-
-                @Override
-                public void remove() {
-                }
-
-                @Override
-                public E next() {
-                    return null;
-                }
-            };
-        }
-
-        @Override
-        public Object[] toArray() {
-            return new Object[0];
-        }
-
-        @Override
-        public <T> T[] toArray(T[] a) {
-            return null;
-        }
-
-        @Override
-        public boolean remove(Object o) {
-            return false;
-        }
-
-        @Override
-        public boolean containsAll(Collection<?> c) {
-            return false;
-        }
-
-        @Override
-        public boolean addAll(Collection<? extends E> c) {
-            return false;
-        }
-
-        @Override
-        public boolean removeAll(Collection<?> c) {
-            return false;
-        }
-
-        @Override
-        public boolean retainAll(Collection<?> c) {
-            return false;
-        }
-
-        @Override
-        public void clear() {
-        }
-    }
 }

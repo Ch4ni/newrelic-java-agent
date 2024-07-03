@@ -9,13 +9,14 @@ package com.newrelic.bootstrap;
 
 import com.newrelic.agent.config.IBMUtils;
 import com.newrelic.agent.config.JavaVersionUtils;
+import com.newrelic.agent.config.JbossUtils;
 import com.newrelic.agent.modules.ClassLoaderUtil;
 import com.newrelic.agent.modules.ClassLoaderUtilImpl;
 import com.newrelic.agent.modules.HttpModuleUtil;
 import com.newrelic.agent.modules.HttpModuleUtilImpl;
 import com.newrelic.agent.modules.ModuleUtil;
 import com.newrelic.agent.modules.ModuleUtilImpl;
-import org.apache.commons.codec.binary.Base64;
+import org.apache.commons.lang3.StringUtils;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
@@ -26,6 +27,7 @@ import java.lang.reflect.Method;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.text.MessageFormat;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.zip.InflaterInputStream;
 
@@ -72,6 +74,8 @@ public class BootstrapAgent {
             throw new IllegalArgumentException("Unable to attach. The license key was not specified");
         }
         System.out.println("Attaching the New Relic java agent");
+        // force this formatter to load early to avoid a java.lang.ClassCircularityError
+        MessageFormat.format("{0}", 1.0);
         try {
             agentArgs = decodeAndDecompressAgentArguments(agentArgs);
         } catch (IOException e) {
@@ -83,7 +87,7 @@ public class BootstrapAgent {
     }
 
     static String decodeAndDecompressAgentArguments(String agentArgs) throws IOException {
-        byte[] decodeBase64 = Base64.decodeBase64(agentArgs);
+        byte[] decodeBase64 = Base64.getDecoder().decode(agentArgs);
         InflaterInputStream zipStream = new InflaterInputStream(new ByteArrayInputStream(decodeBase64));
         return new BufferedReader(new InputStreamReader(zipStream)).readLine();
     }
@@ -109,6 +113,7 @@ public class BootstrapAgent {
         }
 
         checkAndApplyIBMLibertyProfileLogManagerWorkaround();
+        new JbossUtils().checkAndApplyJbossAdjustments(inst);
         startAgent(agentArgs, inst);
     }
 
@@ -280,7 +285,7 @@ public class BootstrapAgent {
         System.out.println("----------");
         System.out.println(JavaVersionUtils.getUnsupportedAgentJavaSpecVersionMessage(javaSpecVersion));
         System.out.println("Experimental runtime mode is enabled. Usage of the agent in this mode is for experimenting with early access" +
-                " or upcoming Java releases or at your own risk.");
+                " or upcoming Java releases at your own risk.");
         System.out.println("----------");
     }
 

@@ -61,6 +61,7 @@ public class AgentConfigImpl extends BaseConfig implements AgentConfig {
     public static final String JDBC_SUPPORT = "jdbc_support";
     public static final String LABELS = "labels";
     public static final String LANGUAGE = "language";
+    public static final String LEGACY_ASYNC_API_SKIP_SUSPEND = "legacy_async_api_skip_suspend";
     public static final String LICENSE_KEY = "license_key";
     public static final String LITE_MODE = "lite_mode";
     public static final String LOG_DAILY = "log_daily";
@@ -118,7 +119,6 @@ public class AgentConfigImpl extends BaseConfig implements AgentConfig {
     public static final String JAR_COLLECTOR = "jar_collector";
     public static final String JMX = "jmx";
     public static final String JFR = "jfr";
-    public static final String OPEN_TRACING = "open_tracing";
     public static final String REINSTRUMENT = "reinstrument";
     public static final String SLOW_SQL = "slow_sql";
     public static final String SPAN_EVENTS = "span_events";
@@ -127,6 +127,7 @@ public class AgentConfigImpl extends BaseConfig implements AgentConfig {
     public static final String TRANSACTION_EVENTS = "transaction_events"; // replaces analytics_events
     public static final String TRANSACTION_SEGMENTS = "transaction_segments";
     public static final String TRANSACTION_TRACER = "transaction_tracer";
+    public static final String SLOW_TRANSACTIONS = "slow_transactions";
 
     // defaults (alphabetized)
     public static final double DEFAULT_APDEX_T = 1.0; // 1 second
@@ -212,6 +213,7 @@ public class AgentConfigImpl extends BaseConfig implements AgentConfig {
     private final HashSet<String> jdbcSupport;
     private final String licenseKey;
     private final boolean litemode;
+    private final boolean legacyAsyncApiSkipSuspend;
     private final boolean logDaily;
     private final String logLevel;
     private final int maxStackTraceLines;
@@ -262,9 +264,9 @@ public class AgentConfigImpl extends BaseConfig implements AgentConfig {
     private final KeyTransactionConfig keyTransactionConfig;
     private final LabelsConfig labelsConfig;
     private final NormalizationRuleConfig normalizationRuleConfig;
-    private final OpenTracingConfig openTracingConfig;
     private final ReinstrumentConfig reinstrumentConfig;
     private final TransactionTracerConfigImpl requestTransactionTracerConfig;
+    private final SlowTransactionsConfig slowTransactionsConfig;
     private final SpanEventsConfig spanEventsConfig;
     private final SqlTraceConfig sqlTraceConfig;
     private final StripExceptionConfig stripExceptionConfig;
@@ -322,6 +324,7 @@ public class AgentConfigImpl extends BaseConfig implements AgentConfig {
         startupTimingEnabled = getProperty(STARTUP_TIMING, DEFAULT_STARTUP_TIMING);
         sendJvmProps = getProperty(SEND_JVM_PROPS, true);
         litemode = getProperty(LITE_MODE, false);
+        legacyAsyncApiSkipSuspend = getProperty(LEGACY_ASYNC_API_SKIP_SUSPEND, false);
         caBundlePath = initSSLConfig();
         trimStats = getProperty(TRIM_STATS, DEFAULT_TRIM_STATS);
         platformInformationEnabled = getProperty(PLATFORM_INFORMATION_ENABLED, DEFAULT_PLATFORM_INFORMATION_ENABLED);
@@ -361,12 +364,12 @@ public class AgentConfigImpl extends BaseConfig implements AgentConfig {
         circuitBreakerConfig = initCircuitBreakerConfig();
         segmentTimeoutInSec = initSegmentTimeout();
         tokenTimeoutInSec = initTokenTimeout();
-        openTracingConfig = initOpenTracingConfig();
         distributedTracingConfig = initDistributedTracing();
         spanEventsConfig = initSpanEventsConfig(distributedTracingConfig.isEnabled());
         transactionEventsConfig = initTransactionEvents();
         commandParserConfig = initCommandParserConfig();
         normalizationRuleConfig = new NormalizationRuleConfig(props);
+        slowTransactionsConfig = initSlowTransactionsConfig();
 
         Map<String, Object> flattenedProps = new HashMap<>();
         flatten("", props, flattenedProps);
@@ -497,11 +500,6 @@ public class AgentConfigImpl extends BaseConfig implements AgentConfig {
                 "Unrecognized region parsed from license_key, please explicitly set the {0} property. Currently using default event ingest URI: {1}",
                 EVENT_INGEST_URI, DEFAULT_EVENT_INGEST_URI);
         return DEFAULT_EVENT_INGEST_URI;
-    }
-
-    private OpenTracingConfig initOpenTracingConfig() {
-        Map<String, Object> openTracing = nestedProps(OPEN_TRACING);
-        return new OpenTracingConfig(openTracing);
     }
 
     private DistributedTracingConfig initDistributedTracing() {
@@ -782,7 +780,8 @@ public class AgentConfigImpl extends BaseConfig implements AgentConfig {
     private ClassTransformerConfig initClassTransformerConfig(boolean liteMode) {
         boolean customTracingEnabled = getProperty(ENABLE_CUSTOM_TRACING, DEFAULT_ENABLE_CUSTOM_TRACING);
         Map<String, Object> props = nestedProps(CLASS_TRANSFORMER);
-        return ClassTransformerConfigImpl.createClassTransformerConfig(props, customTracingEnabled, liteMode);
+        boolean addSecurityExcludes = getProperty("security") != null;
+        return ClassTransformerConfigImpl.createClassTransformerConfig(props, customTracingEnabled, liteMode, addSecurityExcludes);
     }
 
     private CircuitBreakerConfig initCircuitBreakerConfig() {
@@ -825,6 +824,11 @@ public class AgentConfigImpl extends BaseConfig implements AgentConfig {
 
     private CommandParserConfig initCommandParserConfig() {
         return new CommandParserConfigImpl(nestedProps(CommandParserConfigImpl.ROOT));
+    }
+
+    private SlowTransactionsConfig initSlowTransactionsConfig() {
+        Map<String, Object> props = nestedProps(SLOW_TRANSACTIONS);
+        return new SlowTransactionsConfigImpl(props);
     }
 
     @Override
@@ -979,6 +983,11 @@ public class AgentConfigImpl extends BaseConfig implements AgentConfig {
     }
 
     @Override
+    public boolean legacyAsyncApiSkipSuspend() {
+        return legacyAsyncApiSkipSuspend;
+    }
+
+    @Override
     public int getSegmentTimeoutInSec() {
         return segmentTimeoutInSec;
     }
@@ -1036,6 +1045,11 @@ public class AgentConfigImpl extends BaseConfig implements AgentConfig {
     @Override
     public InfiniteTracingConfig getInfiniteTracingConfig() {
         return infiniteTracingConfig;
+    }
+
+    @Override
+    public SlowTransactionsConfig getSlowTransactionsConfig() {
+        return slowTransactionsConfig;
     }
 
     private Object findPropertyInMap(String[] property, Map<String, Object> map) {
@@ -1123,6 +1137,11 @@ public class AgentConfigImpl extends BaseConfig implements AgentConfig {
 
     @Override
     public String getLogFileName() {
+        String classicVarValue = SystemPropertyFactory.getSystemPropertyProvider().getEnvironmentVariable("NEW_RELIC_LOG");
+        if (classicVarValue != null) {
+            return classicVarValue;
+        }
+
         return getProperty(LOG_FILE_NAME, DEFAULT_LOG_FILE_NAME);
     }
 
@@ -1357,11 +1376,6 @@ public class AgentConfigImpl extends BaseConfig implements AgentConfig {
     @Override
     public ExternalTracerConfig getExternalTracerConfig() {
         return externalTracerConfig;
-    }
-
-    @Override
-    public boolean openTracingEnabled() {
-        return openTracingConfig.isEnabled();
     }
 
     @Override

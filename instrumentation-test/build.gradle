@@ -1,8 +1,6 @@
 evaluationDependsOn(":newrelic-agent")
 
-repositories {
-    mavenCentral()
-}
+apply from: '../gradle/script/jacoco.gradle'
 
 dependencies {
     // Instrumentation-test (this project) serves as a consolidation point for
@@ -18,6 +16,9 @@ dependencies {
 
     api("org.apache.httpcomponents:httpclient:4.5.13")
     api("org.nanohttpd:nanohttpd:2.3.1")
+
+    testImplementation("com.newrelic.agent.java.security:newrelic-security-api:${securityAgentVersion}")
+    testImplementation("com.newrelic.agent.java.security:newrelic-security-agent:${securityAgentVersion}")
 }
 
 afterEvaluate {

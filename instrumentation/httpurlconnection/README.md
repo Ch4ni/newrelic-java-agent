@@ -4,19 +4,50 @@ This is a very old HTTP client and the APIs can be called in many combinations w
 
 There is also the added complication that once the `connect` method has been called, whether explicitly or not, the `HttpURLConnection` headers become immutable, and we can no longer add our distributed tracing headers.
 
-Because of these things, we need to keep some state on the order that `HttpURLConnection` APIs are invoked and in some cases we need to defer making a decision on whether an external call should be recorded or not until we have a more complete picture on what APIs were called and in what order.
+This causes a problem where the DT headers have to be added in the `connect` tracer, but the real external call happens when one of `getResponseCode`, `getResponseMessage` or `getInputStream` is called.
 
-## Usage scenarios/implementation
+## History
 
-This instrumentation creates a segment to do timing of external calls, starting when the first `HttpURLConnection` API is called and lasting until the external call is recorded. Because of this the timing isn't as exact as tracing the individual methods. The reason for doing the timing in this manner is that it allows the instrumentation to call `addOutboundRequestHeaders` and `reportAsExternal` on the same segment regardless of the order that the `HttpURLConnection` APIs are called in.
+The instrumentation in version 7.11 would add the DT headers in the first method that was called but add the external to the method that read the response. This caused troubles in DT page, where it would appear that 2 calls were made, one to the DT entity and another to the external.
 
-Calling `addOutboundRequestHeaders` will result in a span (which could be generated from a segment or a tracer) that links one APM entity to another APM entity in a distributed trace, whereas calling `reportAsExternal` will result in a span being marked as "External HTTP" that links one APM entity to any host (whether it is monitored by New Relic, or not). Calling both methods on a single segment instance ensures that both scenarios are associated with a single span in a distributed trace. This mitigates a bug in previous versions of this instrumentation that was using tracers instead of a segment. The bug was that a tracer associated with one method (typically `connect`) would call `addOutboundRequestHeaders` and a tracer for another method would call `reportAsExternal`, resulting in two different spans in a single distributed trace showing the same external call being made twice, one linked to an APM entity and the other linked to the hostname.
+The instrumentation in version 8.0 added a segment that would hold both the DT headers and be marked as the external. This solved the problem with the previous instrumentation, but caused a problem with the timing of the request. Segments are used for async work, so now it looked like there was async work in a single threaded part of the application. And since it is async, its time was not removed from the parent tracer, making the time of the segment to be double counted in the request. But the total request time was correct.
 
-Much of this complication is due to the fact that once the `connect` method has been called, the `HttpURLConnection` header map can no longer be updated and any calls to `addOutboundRequestHeaders` will fail. This means that if `connect` is explicitly called first we have no choice but to call `addOutboundRequestHeaders` at that point and try to predict what sequence of events happens next and whether an external call should be recorded and, if so, how to call `reportAsExternal` on the same tracer/segment so that only a single external span gets generated.
+## New solution
 
-Behavior expected when `HttpURLConnection` APIs are called in different combos and orders.
-* If only `connect` is called, then NO request is made over the wire and NO external call is reported. The instrumentation starts a `TimerTask` if `connect` is called first, waits for a set period of time to determine if any further `HttpURLConnection` APIs are called before deciding how to proceed. If no other API is called, then the segment is just ignored and no external is reported. If any other method is called an external call will be recorded.
-* Calling any of `getOutputStream`, `getInputStream`, `getResponseCode`, or `getHeaderFields` all result in an external call being recorded.
+The current solution resembles the 7.11 instrumentation, but after the external is reported, the guid of the DT tracer and the external tracer are swapped. This causes the downstream DT to be linked to the external tracer. This is a dangerous if done carelessly, but in this case, both tracers are leaf tracers, so there are no tracers that depend on the guids of these tracers.
+
+### Usage scenarios/implementation
+
+The instrumentation cares mostly about the following methods: `connect`, `getOutputStream`, `getResponseCode`, `getResponseMessage` and `getInputStream`. These are the methods that change the state of the HttpURLConnection and affect the instrumentation. Henceforth, _response methods_ can refer to any of `getResponseCode`, `getResponseMessage` and `getInputStream`.
+
+#### Scenario 1 (connect + response)
+
+When `connect` or `getOutputStream` is the first method called, DT headers are added to the request, linked to the method's tracer (DT tracer). In any subsequent call to these methods, the instrumentation code is noop.
+
+Then in a subsequent call to a response method, the method's tracer will be marked as the external (external tracer) and the guids from the external tracer, and the DT tracer are swapped. In subsequent calls for any methods the instrumentation code is noop.
+
+Depending on the configuration of the HttpURLConnection, the external call can start after the call to `getOutpuStram` is finished and before any response method is called. In this case, the external metric will (most likely) record a duration lower than the real duration of the outgoing request.
+
+#### Scenario 2 (response)
+
+When a response method is the first method called, then the tracer will be marked as both the DT tracer and the external tracer. No guid swapping needed in this case.
+
+In further calls to any method, the instrumentation code is noop.
+
+#### Scenario 3 (fire and forget)
+
+When `getOutputStream` is called (with or without a preceding `connect` call), but none of the response methods is called after, could result in a fire and forget call.
+
+As in scenario 1, the first method called will have the DT headers associated with it. But since there is no external tracer, there is no guids to swap.
+
+In this case, there will be no external reported, but if the call reaches a server that is instrumented, then the DT will be linked to the first method call.
+
+Not setting an external in this case is reasonable because there is no way for the agent to report how long the call really took. The call itself may start after the transaction has ended and will usually be longer than the time taken by the `connect` or `getOutputStream` call.
+
+### Flaws
+
+- Fire and forget are not computed into the metrics.
+- The timing of the external may be shorter than it really is when `getOutputStream` is called under certain circumstances.
 
 ## Example HttpURLConnection usage
 

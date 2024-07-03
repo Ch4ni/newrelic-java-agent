@@ -21,18 +21,18 @@ import com.newrelic.agent.tracers.Tracer;
 import com.newrelic.agent.util.MockDistributedTraceService;
 import com.newrelic.api.agent.HeaderType;
 import com.newrelic.api.agent.InboundHeaders;
-import org.apache.commons.codec.binary.Base64;
+import com.newrelic.test.marker.RequiresFork;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.Map;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
+@Category(RequiresFork.class)
 public class HeadersUtilTest {
     @Test
     public void createDTHeadersSetsSpanIdEvenIfTxNotSampled() {
@@ -62,7 +62,7 @@ public class HeadersUtilTest {
         assertFalse(tx.sampled());
 
         assertTrue("map should contain newrelic header", map.containsKey("newrelic"));
-        String decodedHeader = new String(Base64.decodeBase64(map.get("newrelic")), StandardCharsets.UTF_8);
+        String decodedHeader = new String(Base64.getDecoder().decode(map.get("newrelic")), StandardCharsets.UTF_8);
         JsonObject jsonObject = new Gson().fromJson(decodedHeader, JsonObject.class);
         assertFalse("d.sa should be false because tx is not sampled", jsonObject.getAsJsonObject("d").get("sa").getAsBoolean());
         assertEquals("d.pr should be zero", 0f, jsonObject.getAsJsonObject("d").get("pr").getAsFloat(), 0.0001);
@@ -87,6 +87,22 @@ public class HeadersUtilTest {
 
         assertEquals("ghi",
                 HeadersUtil.getNewRelicTraceHeader(createInboundHeaders(ImmutableMap.of("Newrelic", "ghi"), HeaderType.HTTP)));
+    }
+
+    @Test
+    public void testGetSyntheticsInfoHeader() {
+        String synthInfoValue = "{\n" +
+                "       \"version\": \"1\",\n" +
+                "       \"type\": \"scheduled\",\n" +
+                "       \"initiator\": \"cli\",\n" +
+                "       \"attributes\": {\n" +
+                "           \"example1\": \"Value1\",\n" +
+                "           \"example2\": \"Value2\"\n" +
+                "           }\n" +
+                "}";
+
+        assertEquals(synthInfoValue, HeadersUtil.getSyntheticsInfoHeader(createInboundHeaders
+                (ImmutableMap.of("X-NewRelic-Synthetics-Info", synthInfoValue), HeaderType.HTTP)));
     }
 
     private InboundHeaders createInboundHeaders(final Map<String, String> map, final HeaderType type) {

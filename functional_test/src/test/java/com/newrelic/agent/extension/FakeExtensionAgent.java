@@ -10,7 +10,9 @@ package com.newrelic.agent.extension;
 import com.newrelic.agent.bridge.Agent;
 import com.newrelic.agent.bridge.TracedMethod;
 import com.newrelic.agent.bridge.Transaction;
+import com.newrelic.api.agent.AiMonitoring;
 import com.newrelic.api.agent.Config;
+import com.newrelic.api.agent.ErrorApi;
 import com.newrelic.api.agent.Insights;
 import com.newrelic.api.agent.Logger;
 import com.newrelic.api.agent.Logs;
@@ -38,6 +40,14 @@ public class FakeExtensionAgent implements Agent {
     public Insights getInsights() { throw new RuntimeException(); }
 
     @Override
+    public AiMonitoring getAiMonitoring() {
+        return null;
+    }
+
+    @Override
+    public ErrorApi getErrorApi() { throw new RuntimeException(); }
+
+    @Override
     public TraceMetadata getTraceMetadata() { throw new RuntimeException(); }
 
     @Override
@@ -63,6 +73,11 @@ public class FakeExtensionAgent implements Agent {
 
     @Override
     public Logs getLogSender() {
+        throw new RuntimeException();
+    }
+
+    @Override
+    public String getEntityGuid(boolean wait) {
         throw new RuntimeException();
     }
 }

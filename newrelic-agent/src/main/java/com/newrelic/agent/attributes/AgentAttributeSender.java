@@ -12,7 +12,7 @@ import com.newrelic.agent.Transaction;
 import java.util.Map;
 
 public class AgentAttributeSender extends AttributeSender {
-    protected static String ATTRIBUTE_TYPE = "agent";
+    protected static final String ATTRIBUTE_TYPE = "agent";
 
     public AgentAttributeSender() {
         super(new AttributeValidator(ATTRIBUTE_TYPE));
@@ -31,6 +31,14 @@ public class AgentAttributeSender extends AttributeSender {
         } else {
             return null;
         }
+    }
+
+    public void removeAttribute(String key) {
+        Map<String, Object> attributeMap = getAttributeMap();
+        if (attributeMap == null) {
+            return;
+        }
+        attributeMap.remove(key);
     }
 
 }

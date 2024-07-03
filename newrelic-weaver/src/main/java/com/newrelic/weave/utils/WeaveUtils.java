@@ -182,8 +182,8 @@ public final class WeaveUtils {
      */
     private static int getRuntimeMaxSupportedClassVersion() {
         try {
-            double jvmSpecVersion = Double.valueOf(System.getProperty("java.specification.version"));
-            if (jvmSpecVersion >= 11) {
+            double jvmSpecVersion = Double.parseDouble(System.getProperty("java.specification.version"));
+            if (jvmSpecVersion >= 9) {
                 return (int) jvmSpecVersion + CLASS_FILE_VERSION_OFFSET;
             } else if (jvmSpecVersion >= 1.8) {
                 return 52;

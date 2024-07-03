@@ -9,10 +9,13 @@ package com.newrelic.agent.config;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
+import com.newrelic.agent.HarvestServiceImpl;
 import com.newrelic.agent.browser.BrowserConfig;
 import com.newrelic.agent.config.internal.DeepMapClone;
 import com.newrelic.agent.database.SqlObfuscator;
 import com.newrelic.agent.reinstrument.RemoteInstrumentationServiceImpl;
+import com.newrelic.agent.transport.CollectorMethods;
+import com.newrelic.agent.transport.ConnectionResponse;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -21,7 +24,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-import static com.newrelic.agent.config.SpanEventsConfig.*;
+import static com.newrelic.agent.config.SpanEventsConfig.SERVER_SPAN_HARVEST_CONFIG;
 
 public class AgentConfigFactory {
 
@@ -199,6 +202,13 @@ public class AgentConfigFactory {
         addServerProp(EXPECTED_CLASSES, serverData.get(ErrorCollectorConfigImpl.EXPECTED_CLASSES), settings);
         addServerProp(EXPECTED_STATUS_CODES, serverData.get(ErrorCollectorConfigImpl.EXPECTED_STATUS_CODES), settings);
 
+        // Adding agent_run_id & account_id to config as required by Security agent
+        addServerProp(ConnectionResponse.AGENT_RUN_ID_KEY, serverData.get(ConnectionResponse.AGENT_RUN_ID_KEY), settings);
+        addServerProp(DistributedTracingConfig.ACCOUNT_ID, serverData.get(DistributedTracingConfig.ACCOUNT_ID), settings);
+        addServerProp("agent_home", ConfigFileHelper.getNewRelicDirectory().getAbsolutePath(), settings);
+        if (AgentJarHelper.getAgentJarDirectory() != null) {
+            addServerProp("agent_jar_location", AgentJarHelper.getAgentJarDirectory().getAbsolutePath(), settings);
+        }
         if (settingsConfig.getProperty(SECURITY_POLICIES_TOKEN) != null) {
             addServerProp(RECORD_SQL, recordSqlSecure, settings);
             // Root
@@ -221,7 +231,22 @@ public class AgentConfigFactory {
         }
 
         // Copy "event_harvest_config" over from the serverData since it doesn't live in the "agent_config" subsection (it's a top level property from the collector)
-        addServerProp(AgentConfigFactory.EVENT_HARVEST_CONFIG, serverData.get(EVENT_HARVEST_CONFIG), settings);
+        Object eventHarvestConfig = serverData.get(EVENT_HARVEST_CONFIG);
+        addServerProp(AgentConfigFactory.EVENT_HARVEST_CONFIG, eventHarvestConfig, settings);
+
+        // when log forwarding is disabled account wide, the backend will inform the agent by setting the harvest limit to 0
+        if (eventHarvestConfig instanceof Map) {
+            Object harvestLimits = ((Map<?,?>) eventHarvestConfig).get(HarvestServiceImpl.HARVEST_LIMITS);
+            if (harvestLimits instanceof Map) {
+                Object logLimit = ((Map<?,?>) harvestLimits).get(CollectorMethods.LOG_EVENT_DATA);
+                if (logLimit instanceof Number && ((Number) logLimit).intValue() == 0) {
+                    String loggingForwardingEnabled = AgentConfigImpl.APPLICATION_LOGGING + "." + ApplicationLoggingConfigImpl.FORWARDING + "." +
+                            ApplicationLoggingForwardingConfig.ENABLED;
+                    addServerProp(loggingForwardingEnabled, false, settings);
+                }
+            }
+        }
+
 
         // Browser settings
         addServerProp(BrowserConfig.BROWSER_KEY, serverData.get(BrowserConfig.BROWSER_KEY), settings);
@@ -308,8 +333,8 @@ public class AgentConfigFactory {
      * Take the dot-delimited key in `prop` and dive into `settings`, using the dot to
      * separate levels in the hierarchy in `settings`.
      *
-     * @param prop a dot-delimited key, like "slow_sql.enabled".
-     * @param val a non-null value to set, like {@literal true}. Null values will be ignored.
+     * @param prop     a dot-delimited key, like "slow_sql.enabled".
+     * @param val      a non-null value to set, like {@literal true}. Null values will be ignored.
      * @param settings A map that may contain nested maps, like {slow_sql: {}}. Sublevels are created if they do not exist.
      */
     @SuppressWarnings("unchecked")

@@ -90,6 +90,11 @@ public interface ClassTransformerConfig extends Config {
      */
     boolean isGrantPackageAccess();
 
+    /**
+     * Returns the auto async-link rate limit in millis.
+     */
+    long getAutoAsyncLinkRateLimit();
+
     Config getInstrumentationConfig(String implementationTitle);
 
     /**
@@ -101,4 +106,6 @@ public interface ClassTransformerConfig extends Config {
     boolean isWeavePackageEnabled(WeavePackageConfig weavePackageConfig);
 
     boolean isDefaultMethodTracingEnabled();
+
+    boolean isEnhancedSpringTransactionNaming();
 }

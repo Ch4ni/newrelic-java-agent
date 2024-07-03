@@ -12,10 +12,8 @@ plugins {
     id("signing")
 }
 
-repositories {
-    mavenCentral()
-    jcenter()
-}
+apply from: '../gradle/script/spotbugs-config.gradle'
+apply from: '../gradle/script/jacoco.gradle'
 
 configurations {
     tests
@@ -59,6 +57,14 @@ dependencies {
     jarIntoJar project(":agent-bridge-datastore")
     jarIntoJar project(":newrelic-weaver-api")
     jarIntoJar project(":newrelic-weaver-scala-api")
+    jarIntoJar("com.newrelic.agent.java.security:newrelic-security-api:${securityAgentVersion}")
+    jarIntoJar("com.newrelic.agent.java.security:newrelic-security-agent:${securityAgentVersion}")
+
+    shadowIntoJar( group: 'commons-codec', name: 'commons-codec') {
+        version {
+            strictly "[1.13]"
+        }
+    }
 
     shadowIntoJar project(":agent-interfaces")
     shadowIntoJar project(":agent-model")
@@ -68,7 +74,7 @@ dependencies {
         transitive = false
     }
     shadowIntoJar("com.newrelic.agent.java:newrelic-module-util-java:2.1")
-    shadowIntoJar("com.newrelic:jfr-daemon:1.9.0")
+    shadowIntoJar("com.newrelic:jfr-daemon:1.12.0")
     shadowIntoJar "org.ow2.asm:asm:$asmVersion"
     shadowIntoJar "org.ow2.asm:asm-tree:$asmVersion"
     shadowIntoJar "org.ow2.asm:asm-commons:$asmVersion"
@@ -78,8 +84,6 @@ dependencies {
     shadowIntoJar 'net.sourceforge.jregex:jregex:1.2_01'
 
     shadowIntoJar 'org.apache.httpcomponents:httpclient:4.5.13'
-    // We use this explicitly for its Base64 class. It's also a dependency of httpclient.
-    shadowIntoJar("commons-codec:commons-codec:1.11")
     // We use StringUtils. Since we still support Java 7, we can't go much higher than this.
     shadowIntoJar("org.apache.commons:commons-lang3:3.8.1")
 
@@ -107,6 +111,7 @@ dependencies {
     testImplementation("org.eclipse.jetty:jetty-server:8.1.22.v20160922")
     testImplementation("org.eclipse.jetty:jetty-servlet:8.1.22.v20160922")
     testImplementation(project(path: ':newrelic-weaver', configuration: 'testClasses'))
+    testImplementation("org.mockito:mockito-inline:4.11.0")
 }
 
 /**
@@ -263,6 +268,7 @@ task newrelicVersionedAgentJar(type: Jar) {
     // All projects have the same version, so we can safely remove this version from the name.
     from(project.configurations.jarIntoJar) {
         rename("-${project.version}", "")
+        rename("-${securityAgentVersion}", "")
     }
 
     from(zipTree(project.tasks['transformedShadowJar'].archiveFile.get().asFile.path))
@@ -315,6 +321,14 @@ jar {
 test {
     forkEvery = 1
     maxParallelForks = Runtime.runtime.availableProcessors()
+    useJUnit {
+        if (project.hasProperty("forkedTests")) {
+            includeCategories("com.newrelic.test.marker.RequiresFork")
+        } else if (project.hasProperty("nonForkedTests")) {
+            forkEvery = 10
+            excludeCategories("com.newrelic.test.marker.RequiresFork")
+        }
+    }
 
     minHeapSize = "256m"
     maxHeapSize = "768m"
